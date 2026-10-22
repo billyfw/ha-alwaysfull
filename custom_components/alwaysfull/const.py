@@ -206,3 +206,22 @@ FILL_ALERT_TYPE = "Operation_Confirmation"
 # Waiting that long gains nothing -- the answer, when it finally comes, is
 # not JSON -- and it holds the whole poll, and every entity, hostage.
 REQUEST_TIMEOUT_SECONDS = 30
+
+# The notify log is the one endpoint with its own numbers, because it is the
+# one that has been measured misbehaving. Timed from outside Home Assistant
+# against a live account, with nothing else signed in:
+#
+#   pageSize 5:   14-58 s, every call answered
+#   pageSize 10:  60 s then HTTP 504, every call
+#   pageSize 20:  60 s then HTTP 504, every call
+#
+# So the page is small enough to be answered at all, its timeout is as long
+# as the vendor's own gateway allows minus a margin, and after a failure the
+# read is rested for a few polls: a query that takes the server a minute,
+# re-issued every minute, is one slow query held open on their side for
+# ever, which helps nobody. The event entity de-duplicates by row id, so a
+# shorter page costs nothing unless more than five alerts land between two
+# successful reads.
+NOTIFY_LOG_PAGE_SIZE = 5
+NOTIFY_LOG_TIMEOUT_SECONDS = 55
+NOTIFY_LOG_RETRY_AFTER_POLLS = 2

@@ -32,7 +32,7 @@ from pytest_homeassistant_custom_component.syrupy import HomeAssistantSnapshotEx
 from syrupy.assertion import SnapshotAssertion
 
 from custom_components.alwaysfull.api import AlwaysFullClient
-from custom_components.alwaysfull.const import DOMAIN
+from custom_components.alwaysfull.const import DOMAIN, NOTIFY_LOG_PAGE_SIZE
 from custom_components.alwaysfull.coordinator import BowlData
 from custom_components.alwaysfull.exceptions import AlwaysFullAuthError
 from custom_components.alwaysfull.models import BowlConfig, BowlState
@@ -356,7 +356,7 @@ class FakeAlwaysFullClient:
             {"drinkingDate": start, "totalCapacity": self.drinking_totals.get(device_id, 0)},
         ]
 
-    async def notify_log(self, device_id: str, page_size: int = 20) -> Any:
+    async def notify_log(self, device_id: str, page_size: int = NOTIFY_LOG_PAGE_SIZE) -> Any:
         """Return the paginated notification-log envelope from the fixtures.
 
         The committed capture is one device's log, and it is served for

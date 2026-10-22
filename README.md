@@ -449,6 +449,14 @@ the alert entities keep the last page they saw, and everything else stays
 live. Every request is also abandoned after 30 seconds rather than waiting
 for the vendor's gateway to give up first.
 
+The alert log gets special handling, because it is the request that has been
+measured misbehaving: against a live account the vendor took 14–58 seconds to
+answer a five-row page and timed out outright on anything larger. So the
+integration asks for five rows, allows that one request 55 seconds, and after
+a failed read leaves the log alone for two polls before asking again. When
+the vendor is healthy nothing changes; when it is not, alerts can lag a few
+minutes rather than taking the bowl down with them.
+
 **There is no local control path. At all.** A full TCP scan of the device
 across all 65,535 ports found **zero open ports**. It is a Bouffalo Lab BL602
 running a pure outbound cloud client — it connects out and never listens. No

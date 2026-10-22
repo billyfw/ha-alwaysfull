@@ -42,6 +42,10 @@ minute. Three changes:
   (the alert entities keep the last page they saw) and the rest of the bowl
   stays live. The device list and config still fail the poll, and a rejected
   session or a rate limit still gets the handling it always had.
+- The alert log is read five rows at a time (was twenty), with its own
+  55-second timeout, and is rested for two polls after a failed read. Timed
+  against a live account: a five-row page took 14–58 seconds, and ten or
+  twenty rows timed out at the vendor's gateway every single time.
 
 ## 0.4.0
 

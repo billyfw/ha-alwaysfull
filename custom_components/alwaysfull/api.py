@@ -38,6 +38,8 @@ from .const import (
     CODE_TOKEN_EXPIRED,
     CREDENTIAL_REJECTION_CODES,
     LOGIN_PATH,
+    NOTIFY_LOG_PAGE_SIZE,
+    NOTIFY_LOG_TIMEOUT_SECONDS,
     REQUEST_TIMEOUT_SECONDS,
     SIGN_SECRET,
 )
@@ -166,12 +168,17 @@ class AlwaysFullClient:
         method: str,
         path: str,
         params: dict[str, Any] | None = None,
+        *,
+        timeout_seconds: float | None = None,
     ) -> Any:
         """Make a signed request to ``path`` and return the envelope's ``data``.
 
         For ``GET`` the merged parameters are sent as the query string. For
         every other method they are sent as a JSON body. Either way they are
         also what gets signed.
+
+        ``timeout_seconds`` overrides `REQUEST_TIMEOUT_SECONDS` for the one
+        endpoint that has earned a longer leash; see `notify_log`.
         """
         if self._session is None:
             msg = "AlwaysFullClient has no aiohttp session configured"
@@ -205,7 +212,7 @@ class AlwaysFullClient:
         # shared one, and its default is generous enough to let one hung
         # vendor request outlast the whole poll interval. See
         # `REQUEST_TIMEOUT_SECONDS` for the measurement behind the number.
-        timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_SECONDS)
+        timeout = aiohttp.ClientTimeout(total=timeout_seconds or REQUEST_TIMEOUT_SECONDS)
 
         if method_upper == "GET":
             query = {
@@ -445,10 +452,16 @@ class AlwaysFullClient:
         """
         return await self.request("POST", "/app/notify/saveConfig", config)
 
-    async def notify_log(self, device_id: str, page_size: int = 20) -> Any:
-        """Return page 1 of the notification log for ``device_id``."""
+    async def notify_log(self, device_id: str, page_size: int = NOTIFY_LOG_PAGE_SIZE) -> Any:
+        """Return page 1 of the notification log for ``device_id``.
+
+        A small page and a long timeout, both measured rather than chosen:
+        see `NOTIFY_LOG_PAGE_SIZE` for the numbers.
+        """
         params = {"deviceId": device_id, "pageNum": 1, "pageSize": page_size}
-        return await self.request("GET", "/app/notify/getNotifyLog", params)
+        return await self.request(
+            "GET", "/app/notify/getNotifyLog", params, timeout_seconds=NOTIFY_LOG_TIMEOUT_SECONDS
+        )
 
     # -- Writers ---------------------------------------------------------
     #

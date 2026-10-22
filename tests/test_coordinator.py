@@ -25,6 +25,7 @@ from custom_components.alwaysfull.const import (
     EMPTY_DEVICE_LIST_EVERY_N_POLLS,
     HISTORY_CHUNK_DAYS,
     NOTIFY_CONFIG_EVERY_N_POLLS,
+    NOTIFY_LOG_RETRY_AFTER_POLLS,
     RELOGIN_MAX_ATTEMPTS,
     RELOGIN_WINDOW_SECONDS,
 )
@@ -1180,3 +1181,37 @@ async def test_a_rate_limit_on_a_secondary_read_still_fails_the_poll(
     assert isinstance(coordinator.last_exception, UpdateFailed)
     assert "rate-limited" in str(coordinator.last_exception)
     assert mock_api.login_calls == []
+
+
+async def test_a_failed_notify_log_is_rested_for_two_polls_then_retried(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """Measured live: a failed read is a minute-long query on the vendor's side.
+
+    Re-asking every poll keeps one of those running there for ever. After a
+    failure the next two polls reuse the last page without asking; the
+    third asks again, and a success restores the every-poll cadence.
+    """
+    coordinator = await _setup_frozen(hass, freezer)
+    before = coordinator.data[DEVICE_ID].notifications
+    assert mock_api.notify_log_calls.count(DEVICE_ID) == 1
+
+    mock_api.fail_notify_log(TimeoutError(), times=1)
+    await coordinator.async_refresh()
+    assert mock_api.notify_log_calls.count(DEVICE_ID) == 2
+    assert coordinator.data[DEVICE_ID].notifications == before
+
+    for _ in range(NOTIFY_LOG_RETRY_AFTER_POLLS):
+        await coordinator.async_refresh()
+        assert coordinator.last_update_success is True
+        assert coordinator.data[DEVICE_ID].notifications == before
+    # Rested: no further calls during the two polls above.
+    assert mock_api.notify_log_calls.count(DEVICE_ID) == 2
+
+    await coordinator.async_refresh()
+    assert mock_api.notify_log_calls.count(DEVICE_ID) == 3
+    await coordinator.async_refresh()
+    assert mock_api.notify_log_calls.count(DEVICE_ID) == 4
+
+    # Per bowl: the other bowl was never rested.
+    assert mock_api.notify_log_calls.count(SECOND_DEVICE_ID) == 6

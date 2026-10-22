@@ -77,6 +77,7 @@ from .const import (
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
     NOTIFY_CONFIG_EVERY_N_POLLS,
+    NOTIFY_LOG_RETRY_AFTER_POLLS,
     RELOGIN_MAX_ATTEMPTS,
     RELOGIN_WINDOW_SECONDS,
 )
@@ -268,6 +269,9 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
         self._empty_polls = 0
         # Per-bowl memory that outlives a poll. See `BowlHistory`.
         self._history: dict[str, BowlHistory] = {}
+        # Polls still to skip on each bowl's notify log after a failed
+        # read. See `_async_notifications`.
+        self._notify_skip: dict[str, int] = {}
 
     async def _async_update_data(self) -> dict[str, BowlData]:
         """Poll every bowl, mapping vendor failures onto HA's error model."""
@@ -410,17 +414,7 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
             history = None if isinstance(history_read, _Failed) else history_read
             if history is not None:
                 self._observe_drink(history, today, water_today, now)
-            notify_read = await self._async_secondary(
-                "notification log", device_id, self.client.notify_log(device_id)
-            )
-            if isinstance(notify_read, _Failed):
-                # Keep what the last poll saw rather than publishing "no
-                # alerts": the alert sensor would otherwise flip to
-                # unknown, and the event entity would re-fire every row
-                # on the page once the read works again.
-                notifications = previous.notifications if previous is not None else []
-            else:
-                notifications = self._notifications_for(device_id, (notify_read or {}).get("data") or [])
+            notifications = await self._async_notifications(device_id, previous)
 
             # The lifetime is unknown whenever either half of it is: the
             # completed days (history) or today. A day the server has no
@@ -449,6 +443,38 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
 
         self._warn_if_no_devices(data)
         return data
+
+    async def _async_notifications(self, device_id: str, previous: BowlData | None) -> list[dict[str, Any]]:
+        """Read the notify log, or reuse the last page while the read is rested.
+
+        After a failed read the next `NOTIFY_LOG_RETRY_AFTER_POLLS` polls do
+        not ask again. Measured live, a failed read is a query the vendor's
+        server spent a full minute on before its gateway gave up; asking
+        every minute keeps one of those running on their side permanently,
+        and the answer, when it comes, is the same alerts as last time. A
+        read that succeeds puts the cadence straight back to every poll, so
+        a healthy vendor sees no change at all.
+
+        Either way the bowl keeps the last page it saw rather than an empty
+        one: the alert sensor would otherwise flip to unknown, and the event
+        entity would re-fire every row on the page once the read works
+        again.
+        """
+        kept = previous.notifications if previous is not None else []
+        skip = self._notify_skip.get(device_id, 0)
+        if skip > 0:
+            self._notify_skip[device_id] = skip - 1
+            LOGGER.debug(
+                "Resting the notification log for %s this poll after a failed read (%s more to rest)",
+                device_label(device_id),
+                skip - 1,
+            )
+            return kept
+        read = await self._async_secondary("notification log", device_id, self.client.notify_log(device_id))
+        if isinstance(read, _Failed):
+            self._notify_skip[device_id] = NOTIFY_LOG_RETRY_AFTER_POLLS
+            return kept
+        return self._notifications_for(device_id, (read or {}).get("data") or [])
 
     async def _async_secondary[T](self, what: str, device_id: str, read: Awaitable[T]) -> T | _Failed:
         """Await a secondary read, turning a transport failure into `FAILED`.
@@ -485,7 +511,9 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
                 "Could not read the %s for %s this poll, keeping the rest of the bowl live: %s",
                 what,
                 device_label(device_id),
-                err,
+                # `str(TimeoutError())` is the empty string, and a line
+                # ending in a bare colon says nothing about why.
+                str(err) or type(err).__name__,
             )
             return FAILED
 

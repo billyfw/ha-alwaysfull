@@ -376,7 +376,9 @@ async def test_notify_log_sends_device_id_and_default_page_size():
     params = session.calls[0]["params"]
     assert params["deviceId"] == "aabbccddeeff"
     assert params["pageNum"] == "1"
-    assert params["pageSize"] == "20"
+    assert params["pageSize"] == "5"
+    # The one endpoint with its own, longer timeout; see NOTIFY_LOG_TIMEOUT_SECONDS.
+    assert session.calls[0]["timeout"].total == 55
     assert result == fixture["data"]
     assert result["totalSize"] == 13
 
