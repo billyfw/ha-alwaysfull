@@ -935,9 +935,11 @@ async def test_a_failed_history_window_is_resumed_not_repeated(
     """Windows already summed stay summed; the next poll continues from the failure.
 
     Set up normally, then jump far enough ahead that the catch-up needs two
-    windows, and make the second one fail once. The poll fails as a whole
-    -- a partial lifetime must not be published as the whole -- but the
-    first window is not read again, and the retry completes the sum.
+    windows, and make the second one fail once. The poll itself still
+    succeeds -- the history is a secondary read -- but the lifetime is
+    `None` for that poll, because a partial sum must not be published as
+    the whole. The first window is not read again, and the next poll
+    completes the sum.
     """
     coordinator = await _setup_frozen(hass, freezer)
 
@@ -960,7 +962,9 @@ async def test_a_failed_history_window_is_resumed_not_repeated(
     mock_api.drinking_log = flaky  # type: ignore[method-assign]
 
     await coordinator.async_refresh()
-    assert coordinator.last_update_success is False
+    assert coordinator.last_update_success is True
+    assert coordinator.data[DEVICE_ID].water_total is None
+    assert coordinator.data[DEVICE_ID].water_today == 903
 
     await coordinator.async_refresh()
     assert coordinator.last_update_success is True
@@ -1062,3 +1066,117 @@ async def test_the_last_drink_survives_a_units_change(
     await coordinator.async_refresh()
 
     assert coordinator.data[DEVICE_ID].last_drink == seen
+
+
+# -- Secondary reads degrade one reading, not the bowl -----------------------
+#
+# Measured live: the vendor's notify log hung for 60-70 seconds roughly every
+# other poll until their gateway answered with an HTML error page, and each
+# time every entity on the bowl went unavailable. These pin the fix.
+
+
+async def test_a_failed_notify_log_keeps_the_previous_alerts_and_the_bowl_live(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    coordinator = await _setup_frozen(hass, freezer)
+    before = coordinator.data[DEVICE_ID].notifications
+    assert len(before) == 13
+
+    mock_api.fail_notify_log(AlwaysFullError("Server responded HTTP 504 to /app/notify/getNotifyLog"), times=1)
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    bowl = coordinator.data[DEVICE_ID]
+    assert bowl.water_today == 903
+    assert bowl.state.is_online
+    # The last good page, not an empty one.
+    assert bowl.notifications == before
+
+    await coordinator.async_refresh()
+    assert coordinator.data[DEVICE_ID].notifications == before
+
+
+async def test_a_failed_notify_log_on_the_first_poll_means_no_alerts_yet(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """With nothing earlier to keep, the bowl still loads; its alerts are simply empty."""
+    mock_api.fail_notify_log(TimeoutError(), times=2)
+    coordinator = await _setup_frozen(hass, freezer)
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data[DEVICE_ID].notifications == []
+    assert coordinator.data[DEVICE_ID].water_today == 903
+
+
+async def test_a_failed_todays_log_leaves_water_today_and_lifetime_unknown_only(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """Today's reading is unknown for one poll; the lifetime with it; nothing else moves."""
+    coordinator = await _setup_frozen(hass, freezer)
+    assert coordinator.data[DEVICE_ID].water_total == 903 + 903
+
+    mock_api.fail_drinking_log(aiohttp.ClientError("boom"), times=2)
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    bowl = coordinator.data[DEVICE_ID]
+    assert bowl.water_today is None
+    assert bowl.water_total is None
+    assert bowl.state.is_online
+    assert len(bowl.notifications) == 13
+
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+    assert coordinator.data[DEVICE_ID].water_today == 903
+    assert coordinator.data[DEVICE_ID].water_total == 903 + 903
+    # A failed read is not a rise from nothing.
+    assert coordinator.data[DEVICE_ID].last_drink is None
+
+
+async def test_a_missing_row_still_counts_toward_the_lifetime_but_a_failed_read_does_not(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    coordinator = await _setup_frozen(hass, freezer)
+
+    freezer.tick(timedelta(minutes=1))
+    mock_api.drinking_rows_override = []
+    await coordinator.async_refresh()
+    assert coordinator.data[DEVICE_ID].water_today is None
+    assert coordinator.data[DEVICE_ID].water_total == 903
+
+    mock_api.drinking_rows_override = None
+    mock_api.fail_drinking_log(TimeoutError(), times=2)
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+    assert coordinator.data[DEVICE_ID].water_today is None
+    assert coordinator.data[DEVICE_ID].water_total is None
+
+
+async def test_a_rejected_session_on_a_secondary_read_still_triggers_the_relogin(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """Degrading a reading must not swallow the one error the poll has to act on."""
+    coordinator = await _setup_frozen(hass, freezer)
+    assert mock_api.login_calls == []
+
+    mock_api.fail_notify_log(await vendor_error("651"), times=1)
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert mock_api.login_calls == ["user@example.com"]
+    assert len(coordinator.data[DEVICE_ID].notifications) == 13
+
+
+async def test_a_rate_limit_on_a_secondary_read_still_fails_the_poll(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    coordinator = await _setup_frozen(hass, freezer)
+
+    mock_api.fail_notify_log(await vendor_error("603"), times=1)
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is False
+    assert isinstance(coordinator.last_exception, UpdateFailed)
+    assert "rate-limited" in str(coordinator.last_exception)
+    assert mock_api.login_calls == []

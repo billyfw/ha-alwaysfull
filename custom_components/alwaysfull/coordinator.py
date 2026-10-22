@@ -6,6 +6,9 @@ Polling shape, per cycle:
   full device state, byte-identical in shape to `device/detail`, so the
   N extra detail calls the vendor app makes buy nothing here.
 - per device: `device/config`, today's `drinking/log`, and `notify/log`.
+  Of these only `device/config` is load-bearing: a failure of today's log,
+  of the history read or of the notify log degrades THAT reading and keeps
+  the rest of the bowl live. See `_async_secondary`.
 - per device, only on the first poll and then once a day: the
   `drinking/log` for every completed day not yet folded into the lifetime
   total, in windows of at most `HISTORY_CHUNK_DAYS`. See `BowlHistory`.
@@ -84,11 +87,34 @@ from .exceptions import (
     AlwaysFullRateLimitError,
     AlwaysFullReloginThrottledError,
 )
-from .models import BowlConfig, BowlState, parse_device_timestamp
+from .models import BowlConfig, BowlState, device_label, parse_device_timestamp
 
 CREDENTIALS_REJECTED_MESSAGE = "Always Full rejected the stored credentials"
 
+
+class _Failed:
+    """The result of a secondary read that could not be made this poll.
+
+    Its own type rather than `None`, because `None` already means something
+    on two of the three reads it guards: "the server has no row for today"
+    on the drinking log and "no registration date to sum from" on the
+    history. Both of those are answers. A read that never got an answer is
+    not, and the lifetime total in particular must tell them apart: a day
+    with no row contributes nothing to the sum, a day that could not be
+    read makes the sum unknown.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "FAILED"
+
+
+FAILED = _Failed()
+
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 
@@ -367,20 +393,53 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
             if not device_id:
                 LOGGER.debug("Skipping a device row with no deviceId")
                 continue
-            water_today = await self._async_water_today(device_id, state.units, today)
-            history = await self._async_history(device_id, state.units, row.get("createTime"), now)
+            previous = (self.data or {}).get(device_id)
+            config = BowlConfig.from_api(await self.client.device_config(device_id) or {})
+
+            today_read = await self._async_secondary(
+                "today's drinking log",
+                device_id,
+                self._async_water_today(device_id, state.units, today),
+            )
+            water_today = None if isinstance(today_read, _Failed) else today_read
+            history_read = await self._async_secondary(
+                "drinking history",
+                device_id,
+                self._async_history(device_id, state.units, row.get("createTime"), now),
+            )
+            history = None if isinstance(history_read, _Failed) else history_read
             if history is not None:
                 self._observe_drink(history, today, water_today, now)
+            notify_read = await self._async_secondary(
+                "notification log", device_id, self.client.notify_log(device_id)
+            )
+            if isinstance(notify_read, _Failed):
+                # Keep what the last poll saw rather than publishing "no
+                # alerts": the alert sensor would otherwise flip to
+                # unknown, and the event entity would re-fire every row
+                # on the page once the read works again.
+                notifications = previous.notifications if previous is not None else []
+            else:
+                notifications = self._notifications_for(device_id, (notify_read or {}).get("data") or [])
+
+            # The lifetime is unknown whenever either half of it is: the
+            # completed days (history) or today. A day the server has no
+            # row for is a known nothing and adds zero; a day that could
+            # not be READ is not, and a total published without it would
+            # dip by today's amount and read as a meter reset.
+            if history is None or isinstance(today_read, _Failed):
+                water_total = None
+            else:
+                water_total = history.total + (water_today or 0)
+
             data[device_id] = BowlData(
                 device_id=device_id,
                 state=state,
-                config=BowlConfig.from_api(await self.client.device_config(device_id) or {}),
+                config=config,
                 water_today=water_today,
-                notifications=self._notifications_for(
-                    device_id, (await self.client.notify_log(device_id) or {}).get("data") or []
-                ),
+                notifications=notifications,
                 raw=row,
-                water_total=None if history is None else history.total + (water_today or 0),
+                water_total=water_total,
                 last_drink=None if history is None else history.last_drink,
             )
 
@@ -390,6 +449,45 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
 
         self._warn_if_no_devices(data)
         return data
+
+    async def _async_secondary[T](self, what: str, device_id: str, read: Awaitable[T]) -> T | _Failed:
+        """Await a secondary read, turning a transport failure into `FAILED`.
+
+        WHY THIS EXISTS: measured on a live install, the vendor's
+        `notify/getNotifyLog` hung for 60-70 seconds roughly every other
+        poll until their gateway answered with an HTML error page. Each
+        time, every one of the bowl's thirty-odd entities went unavailable
+        -- water today, online, filter life, all of it -- because of one
+        alert-log read that nothing else depends on. The device list and
+        the config are what the bowl's state is built from; the rest are
+        readings, and a reading the vendor could not supply this minute is
+        `unknown` for a minute, not an outage.
+
+        WHAT STILL PROPAGATES, deliberately: a rejected session
+        (`AlwaysFullAuthError`) must reach the re-login in
+        `_async_update_data`, and a rate limit (`AlwaysFullRateLimitError`)
+        must fail the poll so the backoff happens -- swallowing either here
+        would hide the one thing the caller has to act on. Everything else
+        that `_async_update_data` would have mapped to `UpdateFailed` --
+        timeouts, client errors, malformed bodies, unclassified vendor codes
+        -- is logged once at DEBUG with the device's label and becomes
+        `FAILED`, which the caller maps onto whatever "not known this poll"
+        means for that reading.
+
+        `device_id` is logged through `device_label`, never raw.
+        """
+        try:
+            return await read
+        except (AlwaysFullAuthError, AlwaysFullRateLimitError):
+            raise
+        except (TimeoutError, aiohttp.ClientError, ValueError, AlwaysFullError) as err:
+            LOGGER.debug(
+                "Could not read the %s for %s this poll, keeping the rest of the bowl live: %s",
+                what,
+                device_label(device_id),
+                err,
+            )
+            return FAILED
 
     def _warn_if_no_devices(self, data: dict[str, BowlData]) -> None:
         """Say so when a SUCCESSFUL poll found no bowls at all.

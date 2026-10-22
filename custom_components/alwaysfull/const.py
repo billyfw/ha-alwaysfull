@@ -198,3 +198,11 @@ HISTORY_CHUNK_DAYS = 180
 # alert that marks something the bowl DID rather than something wrong with
 # it. The last-refill sensor is built from it.
 FILL_ALERT_TYPE = "Operation_Confirmation"
+
+# How long one vendor request may take before it is abandoned. Measured on a
+# live install: a healthy poll of four requests completes in about five
+# seconds, while a hung `notify/getNotifyLog` sat for 60-70 seconds until
+# the vendor's own gateway gave up and answered with an HTML error page.
+# Waiting that long gains nothing -- the answer, when it finally comes, is
+# not JSON -- and it holds the whole poll, and every entity, hostage.
+REQUEST_TIMEOUT_SECONDS = 30

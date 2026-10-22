@@ -24,6 +24,25 @@ release.
 Nothing existing changes: no entity ids, unique ids or states are affected.
 The diagnostics download gains `water_total` and `last_drink` per bowl.
 
+### One slow request no longer takes every entity unavailable
+
+Measured on a live install: the vendor's `notify/getNotifyLog` hung for 60–70
+seconds roughly every other poll until their gateway answered with an HTML
+error page, and each time all of the bowl's entities went unavailable for a
+minute. Three changes:
+
+- Every request is abandoned after **30 seconds** instead of waiting for the
+  vendor's gateway.
+- A gateway error (HTTP 5xx) or a non-JSON body is reported as what it is —
+  `Server responded HTTP 504 …` — rather than as a complaint about the first
+  character of an HTML page. With debug logging on, the start of that body is
+  logged so the next bug report can say which page the vendor served.
+- Today's drinking log, the drinking history and the alert log are now
+  **secondary reads**: if one fails, that reading is `unknown` for the poll
+  (the alert entities keep the last page they saw) and the rest of the bowl
+  stays live. The device list and config still fail the poll, and a rejected
+  session or a rate limit still gets the handling it always had.
+
 ## 0.4.0
 
 ### ⚠️ Breaking: the two connection times are timestamps, not text

@@ -439,6 +439,16 @@ comes from `app.alwaysfull.com`. If that is down, slow or rate-limiting, your
 entities go unavailable. There is no offline mode and no cached fallback,
 because a cached water total is a lie about your pet.
 
+One failing request no longer takes the whole bowl with it, though. The device
+list and the device config are what every entity is built from, and a failure
+there is an outage. The three other reads — today's drinking log, the drinking
+history behind **Water lifetime**, and the alert log — are readings: if one of
+them times out or comes back as an error page (the vendor's alert log has been
+seen hanging for a minute at a time), that reading is `unknown` for a poll,
+the alert entities keep the last page they saw, and everything else stays
+live. Every request is also abandoned after 30 seconds rather than waiting
+for the vendor's gateway to give up first.
+
 **There is no local control path. At all.** A full TCP scan of the device
 across all 65,535 ports found **zero open ports**. It is a Bouffalo Lab BL602
 running a pure outbound cloud client — it connects out and never listens. No
