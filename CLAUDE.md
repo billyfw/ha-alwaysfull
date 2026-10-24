@@ -1,0 +1,143 @@
+# ha-alwaysfull: Always Full water bowls -> Home Assistant (billyfw fork)
+
+> **House: ha-lau (the house) polls the account; the account carries both houses' bowls.** This
+> integration is installed on the house HA box only. The `ha-lau-config` CLAUDE.md rules
+> apply to anything touching that box: never restart or reload HA without the owner's explicit
+> approval, always say which house, check live state before claiming it. the other house's HA must NOT
+> get a copy of this integration on the same account (see Guards: one session per account).
+
+## What this is
+
+`custom_components/alwaysfull`, a HACS custom integration for the Always Full automatic pet
+water bowl (the dog's), on the vendor's reverse-engineered cloud API. It is **billyfw's fork of
+`rancur/ha-alwaysfull`**, started 2026-10-24, because upstream 0.4.0 could not finish setting up
+on the owner's account and the fixes exist only as open upstream pull requests. Upstream's own
+documentation is intact and still correct: `README.md` (what the entities are, the limitations),
+`docs/VENDOR-API.md` (every endpoint, signing, the single-session rule, the quirks, with each
+claim marked verified or inferred). `CHANGELOG.md` says, newest first, what this fork changed.
+Read `docs/VENDOR-API.md` sections 1.4, 1.5 and 12 before touching the API client.
+
+## Why a fork, and what it carries (2026-10-24)
+
+- Upstream `rancur/ha-alwaysfull` is at v0.4.0 (2026-09-18, one author, no stars, issues open,
+  no replies yet). Two pull requests by `paradigmshift6` have been open since 2026-10-22: #1 (three
+  sensors: water lifetime, last drink, last refill) and #2 (a 30 s timeout on every request, 5xx
+  and HTML bodies named as such, today's log / history / alert log as secondary reads that degrade
+  one reading instead of the bowl, the alert log at page size 5 with a 55 s timeout and a rest
+  after a failure). #2 is stacked on #1. Both are taken as they stand (`main` here = upstream
+  `main` + those three commits + ours); 505 of their tests passed on dev under HA 2026.9.2.
+- Ours, on top (two commits, see `CHANGELOG.md` 0.5.0): the settings read (`device/config`) is a
+  per-bowl secondary read too, keeping the last-read settings through a failure and leaving the
+  setting entities **unavailable** (not zeros) and writes refused while a bowl's settings were
+  never read; and the rest-after-failure covers every secondary read, per bowl and per reading
+  (`SECONDARY_RETRY_AFTER_POLLS = 2`). 511 tests, ruff, mypy and `scripts/check_no_pii.py` clean.
+- What was measured live on 2026-10-24 (from dev with the entry's own token, no login):
+  `device/list` 0.6 s and `device/config` 0.5 s for the online bowl, every time; `drinking/log`
+  for today and `notify/getNotifyLog` (page size 5 and 20) 60 s then an HTML `504 Gateway
+  Time-out`, every call for over an hour, then the drinking log answered once in 15.6 s while the
+  alert log still 504'd; `device/config` for the offline the other house bowl 13.4 s then code 201 "The
+  device is not online." Either of the last two failed upstream 0.4.0's first poll, so the entry
+  cycled `setup_in_progress` (about 108 s per try) and `setup_retry` for hours and never loaded.
+  HA logs that retry at INFO only.
+
+## Status
+
+- [x] 2026-10-24: upstream 0.4.0 installed on ha-lau through HACS (entry `01M5QEPQCK3VDJ32A78HE2NM06`,
+      title = the owner's address, created 07:18 HST); never loaded (above).
+- [x] 2026-10-24: fork created, 0.5.0 built and tested on dev.
+- [ ] Switch the box to the fork (HACS: remove the `rancur/ha-alwaysfull` record, add
+      `billyfw/ha-alwaysfull` as a custom repository, download v0.5.0) and restart HA: **the owner's go.**
+- [ ] First load: both bowls as devices, the house bowl's entities populated, the other house bowl's
+      settings entities unavailable while it is offline; record the entity ids in ha-lau-config
+      `docs/devices/water-bowl.md` and the registry manifest.
+- [ ] Then, designed with the owner: a `packages/water_bowl.yaml` in ha-lau-config (alert pushes
+      through `script.lau_notify_household`, a syshealth heartbeat like halo's).
+
+## Guards
+
+- **One session per account, so one poller per account.** A login anywhere invalidates every
+  other token at once (VENDOR-API 1.5). Never install this integration on a second HA with the
+  same account, never log in from a script or a probe while the entry is set up (it signs HA out,
+  HA signs back in on its next poll, and that signs the script, or the owner's phone app, out again).
+  A probe from dev reuses the entry's stored token, read from the box's `.storage/core.config_entries`
+  into a `chmod 600` scratch file, never printed. Reads only; no `/app/user/loginInfo` (it returns
+  the account holder's name, phone and street address).
+- **the owner's password lives in the HA entry only**: never in git, a fixture, a log line or chat.
+- **No settings write to a live bowl from a test or a check**; the vendor's writes replace whole
+  objects and their app shortens the filter life on a no-op save (README, "Beyond what the app
+  exposes"). Writes happen only when the owner asks for that change then.
+- **HACS points at this fork, never at `rancur/ha-alwaysfull`**; a redownload from upstream's record
+  would put 0.4.0 back and the entry would stop loading again.
+- Poll interval stays at the 60 s default (the vendor's app polls every 3 s while open); the
+  re-login budget (3 per 5 min) and the rests are the protection against the vendor's `603` rate
+  limit. Do not loosen either without re-reading VENDOR-API 1.4 and 12.
+
+## Inventory (the owner's account, as of 2026-10-24)
+
+| Bowl | `deviceId` | Registered | Where | Notes |
+|---|---|---|---|---|
+| bowl1 | `bowl-e43a3d86` | 2026-10-24 17:10 UTC | the house | wall unit (`slaveType` 2), firmware 3.6.2, units 2 |
+| the other house Water Bowl | `bowl-ce468908` | 2026-08-02 | the other house | same model; offline since 2026-10-20 14:41 UTC when checked |
+
+Both appear as devices on ha-lau. The vendor's `deviceId` is the bowl's MAC; the integration logs it
+only through `device_label()` (a hash). the other house's HA has no view of its bowl yet: a second poller on
+the same account is ruled out, so the options are a second Always Full account for that bowl (if the
+vendor can move a bowl between accounts), or ha-lau forwarding its states to ha-config. the owner's call.
+
+## Deploy (ha-lau, through HACS from this fork)
+
+1. Change, test (`Testing` below), update `CHANGELOG.md`, bump `manifest.json` `version` and the
+   `placeholder` in `.github/ISSUE_TEMPLATE/bug_report.yml` together (a test pins them equal).
+2. Commit, push `main`, tag `vX.Y.Z` (`git tag -a vX.Y.Z -m ...; git push origin vX.Y.Z`) and
+   `gh release create vX.Y.Z --title X.Y.Z --notes-file <the CHANGELOG section>`. HACS installs
+   releases; a tag without a release is not offered.
+3. On the box: HACS shows the update (or, from dev, the HACS websocket: `hacs/repository/info` for
+   the id, `hacs/repository/download` with `repository` = that id; the ha-config CLAUDE.md "HA Core
+   upgrades" describes the same calls). The first time only: remove upstream's record and add this
+   repository as a custom repository (`hacs/repositories/add`, category `integration`).
+4. **Restart HA with the owner's go** (new Python needs a restart; a reload of the entry keeps the old
+   modules). The box's git autocommit then commits `custom_components/alwaysfull` into ha-lau-config
+   as `HACS: Always Full <old> -> <new>`; `git -C ~/devprojects/ha-lau-config pull` afterwards.
+5. Post-restart checks: the entry `loaded` (`GET /api/config/config_entries/entry?domain=alwaysfull`),
+   the two devices, the house bowl's `sensor.*water_today*` with a number, nothing from
+   `custom_components.alwaysfull` above DEBUG in `GET /api/hassio/core/logs` (the box has no
+   `home-assistant.log` file; read the log over that REST route with `Accept: text/plain`).
+   `logger.set_level` `custom_components.alwaysfull: debug` shows the secondary-read failures and
+   rests; the restart resets it.
+
+`scripts/dev_deploy.sh` is the bench path (tar over ssh, like halo-scrape): for an unreleased build
+only, since HACS will overwrite it at the next download.
+
+## Keeping up with upstream
+
+`git remote add upstream https://github.com/rancur/ha-alwaysfull.git` is set in the dev clone. When
+upstream moves: `git fetch upstream`, rebase our commits onto `upstream/main` (drop the three
+`paradigmshift6` commits if upstream merged #1 and #2, keep ours), run the suite, release. If
+upstream fixes the offline-bowl case itself, prefer theirs and retire ours. Offer our two changes
+upstream as a pull request once they have run live for a while.
+
+## Testing
+
+    uv venv -p 3.14 .venv && uv pip install -p .venv/bin/python -r requirements-dev.txt
+    .venv/bin/python -m pytest -q          # 511 tests, 168 snapshots (2026-10-24)
+    .venv/bin/ruff check . && .venv/bin/mypy && .venv/bin/python scripts/check_no_pii.py
+
+`tests/conftest.py`'s `FakeAlwaysFullClient` stands in for the vendor; `fail_device_config(...,
+device_id=)`, `fail_drinking_log`, `fail_notify_log` arm failures. A conformance test keeps the fake's
+coroutine signatures equal to the real client's. Snapshots are syrupy (`--snapshot-update` only when
+an entity really changed).
+
+## Ripples
+
+- A bowl is added, moves house or goes for good, or the account changes: the Inventory here;
+  ha-lau-config `docs/devices/water-bowl.md` (and its package once it exists); network-management if
+  the bowl's MAC or address is recorded there; ha-config if the other house ever gets a view of its bowl.
+- A release here: ha-lau-config gets the box's autocommit; nothing in dash or system-health-monitor
+  (no hosted service, no cron) until a heartbeat package exists.
+
+## References
+
+- Upstream: https://github.com/rancur/ha-alwaysfull (v0.4.0), PRs #1 and #2 by paradigmshift6
+  (fork `paradigmshift6/ha-alwaysfull`, branch `fix/resilient-polling` = our base).
+- Vendor API notes: `docs/VENDOR-API.md` (upstream's, verbatim).
+- The 2026-10-24 incident: ha-lau-config `docs/incidents.md`.
