@@ -4,6 +4,17 @@ Release notes, newest first. Releases before 0.4.0 predate this file; their
 changes are in the commit history, one `build: ship as <version>` commit per
 release.
 
+## 0.5.2
+
+### Removing a left-out bowl's device the way Home Assistant 2026.9 wants
+
+The device cleanup that runs when a left-out bowl still has a device used
+`async_update_device(remove_config_entry_id=...)`, which Home Assistant 2026.9
+reports as deprecated on every call (a device now belongs to exactly one config
+entry) and removes in 2027.8. It now calls `async_remove_device`. Same result:
+the device and its entities go on the reload that follows saving the option.
+Seen live on the first use of the option, 2026-10-24.
+
 ## 0.5.1
 
 ### Bowls to leave out
