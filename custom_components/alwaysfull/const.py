@@ -13,6 +13,14 @@ APP_VERSION = "1.2.29"
 SIGN_SECRET = "e688769fcccc44cd3fd6f7dsfsdvdse"
 
 CONF_SCAN_INTERVAL = "scan_interval"
+
+# Bowls on the account that this Home Assistant leaves out entirely: no
+# device, no entities, no requests for them. A list of the vendor's device
+# ids, chosen in the options flow by the bowl's name. Why it exists: one
+# Always Full account can carry bowls at more than one house, and the vendor
+# allows one session per account (VENDOR-API 1.5), so one Home Assistant
+# polls the account and the other house's bowl is simply not wanted here.
+CONF_IGNORED_BOWLS = "ignored_bowls"
 DEFAULT_SCAN_INTERVAL = 60
 MIN_SCAN_INTERVAL = 30
 MAX_SCAN_INTERVAL = 600

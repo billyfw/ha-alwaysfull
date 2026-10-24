@@ -69,6 +69,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_IGNORED_BOWLS,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -201,6 +202,20 @@ def scan_interval_seconds(entry: ConfigEntry) -> int:
     return min(max(seconds, MIN_SCAN_INTERVAL), MAX_SCAN_INTERVAL)
 
 
+def ignored_bowls(entry: ConfigEntry) -> frozenset[str]:
+    """Return the vendor device ids the entry's options leave out.
+
+    Read once, at coordinator construction: the options flow reloads the
+    entry whenever the options change, so a new list always arrives with a
+    new coordinator. Anything that is not a non-empty string is dropped
+    rather than trusted, since the stored list can be edited by hand.
+    """
+    raw = entry.options.get(CONF_IGNORED_BOWLS) or []
+    if not isinstance(raw, list | tuple | set | frozenset):
+        return frozenset()
+    return frozenset(str(item) for item in raw if isinstance(item, str) and item)
+
+
 def ha_utc_offset_hours() -> int | None:
     """Return Home Assistant's configured UTC offset in whole hours.
 
@@ -242,6 +257,13 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
         )
         self.client = client
         self.notify_config: dict[str, Any] | None = None
+        # The bowls the options leave out. See `CONF_IGNORED_BOWLS`.
+        self.ignored = ignored_bowls(entry)
+        # Every bowl the vendor has listed on this account, device id ->
+        # the name to show for it, left-out bowls included. It is what the
+        # options flow offers, so a bowl that was left out can be put back
+        # by name rather than by a hex id nobody remembers.
+        self.known_bowls: dict[str, str] = {}
         # Serialises the write platforms ACROSS platforms, so a user
         # changing several settings at once produces sequential vendor
         # requests instead of a burst at a cloud API that answers 429.
@@ -398,11 +420,20 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
         today = now.strftime("%Y-%m-%d")
 
         data: dict[str, BowlData] = {}
+        listed = 0
         for row in rows:
             state = BowlState.from_api(row)
             device_id = state.device_id
             if not device_id:
                 LOGGER.debug("Skipping a device row with no deviceId")
+                continue
+            listed += 1
+            self.known_bowls[device_id] = (state.device_name or "").strip() or device_label(device_id)
+            if device_id in self.ignored:
+                # Left out by the options: not a request spent on it, not a
+                # device for it. Its row still counts as listed above, so an
+                # account whose every bowl is left out is not mistaken for an
+                # empty one.
                 continue
             previous = (self.data or {}).get(device_id)
 
@@ -447,7 +478,7 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
             self.notify_config = await self.client.notify_config()
         self._poll_count += 1
 
-        self._warn_if_no_devices(data)
+        self._warn_if_no_devices(data, listed)
         return data
 
     async def _async_config(self, device_id: str, previous: BowlData | None) -> BowlConfig | None:
@@ -555,8 +586,14 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
         self._rest.pop(key, None)
         return result
 
-    def _warn_if_no_devices(self, data: dict[str, BowlData]) -> None:
+    def _warn_if_no_devices(self, data: dict[str, BowlData], listed: int) -> None:
         """Say so when a SUCCESSFUL poll found no bowls at all.
+
+        `listed` is how many bowls the vendor returned, left-out ones
+        included. An account whose bowls are all left out by the options is
+        not an empty account, and the warning below would send its owner
+        looking for a vendor problem that is their own setting; that case
+        gets one DEBUG line instead.
 
         An empty device list is not an error anywhere in this integration's
         error model, and it should not become one: "this account has no
@@ -588,6 +625,13 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
         """
         if data:
             self._empty_polls = 0
+            return
+        if listed:
+            self._empty_polls = 0
+            LOGGER.debug(
+                "Every bowl on the account (%s of them) is left out by the options; nothing to poll",
+                listed,
+            )
             return
 
         self._empty_polls += 1

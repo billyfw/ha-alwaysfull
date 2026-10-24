@@ -9,6 +9,7 @@ from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -16,10 +17,10 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.alwaysfull import PLATFORMS
+from custom_components.alwaysfull import PLATFORMS, async_remove_config_entry_device
 from custom_components.alwaysfull.binary_sensor import BINARY_SENSORS
 from custom_components.alwaysfull.button import BUTTONS
-from custom_components.alwaysfull.const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from custom_components.alwaysfull.const import CONF_IGNORED_BOWLS, DEFAULT_SCAN_INTERVAL, DOMAIN
 from custom_components.alwaysfull.coordinator import AlwaysFullCoordinator
 from custom_components.alwaysfull.event import ALERT_EVENTS
 from custom_components.alwaysfull.exceptions import AlwaysFullRateLimitError
@@ -34,6 +35,7 @@ from .conftest import (
     ENTRY_UNIQUE_ID,
     SECOND_DEVICE_ID,
     FakeAlwaysFullClient,
+    device_row,
     setup_platforms,
     zone_unlike_host,
 )
@@ -54,6 +56,20 @@ PER_BOWL_DESCRIPTIONS = (
 
 # The two bowls `device_list_multi.json` carries a usable `deviceId` for.
 FIXTURE_DEVICE_IDS = (DEVICE_ID, SECOND_DEVICE_ID)
+
+
+def _bowl_device(
+    registry: dr.DeviceRegistry, entry: MockConfigEntry, device_id: str
+) -> dr.DeviceEntry | None:
+    """Return this entry's registry device for a vendor device id, if it exists."""
+    return next(
+        (
+            device
+            for device in dr.async_entries_for_config_entry(registry, entry.entry_id)
+            if (DOMAIN, device_id) in device.identifiers
+        ),
+        None,
+    )
 
 
 def _entity_ids_per_bowl(
@@ -300,3 +316,63 @@ def test_the_shipped_version_is_the_one_users_are_asked_to_report() -> None:
     version = manifest["version"]
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
     assert f'placeholder: "{version}"' in template
+
+
+async def test_a_bowl_left_out_later_loses_its_device_and_entities_on_reload(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient
+) -> None:
+    """Saving the option reloads the entry, and the reload takes the bowl's device with it.
+
+    The other bowl keeps its full entity set, and the account device stays.
+    """
+    entry = await setup_platforms(hass, PLATFORMS)
+    device_registry = dr.async_get(hass)
+    entity_registry = er.async_get(hass)
+    second = _bowl_device(device_registry, entry, SECOND_DEVICE_ID)
+    assert second is not None
+    assert er.async_entries_for_device(entity_registry, second.id, include_disabled_entities=True)
+
+    hass.config_entries.async_update_entry(entry, options={CONF_IGNORED_BOWLS: [SECOND_DEVICE_ID]})
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert _bowl_device(device_registry, entry, SECOND_DEVICE_ID) is None
+    assert er.async_entries_for_device(entity_registry, second.id, include_disabled_entities=True) == []
+    assert not [s for s in hass.states.async_all() if s.entity_id.split(".", 1)[1].startswith("second_bowl_")]
+
+    first = _bowl_device(device_registry, entry, DEVICE_ID)
+    assert first is not None
+    assert len(er.async_entries_for_device(entity_registry, first.id, include_disabled_entities=True)) == len(
+        PER_BOWL_DESCRIPTIONS
+    )
+    devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+    assert sum(1 for device in devices if device.entry_type is dr.DeviceEntryType.SERVICE) == 1
+
+
+async def test_a_bowls_device_can_be_deleted_only_once_the_entry_no_longer_provides_it(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient
+) -> None:
+    """The delete button works for a bowl that is gone from the account, not for one still polled."""
+    entry = await setup_platforms(hass, PLATFORMS)
+    device_registry = dr.async_get(hass)
+    first = _bowl_device(device_registry, entry, DEVICE_ID)
+    second = _bowl_device(device_registry, entry, SECOND_DEVICE_ID)
+    account = next(
+        device
+        for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+        if device.entry_type is dr.DeviceEntryType.SERVICE
+    )
+    assert first is not None
+    assert second is not None
+
+    assert await async_remove_config_entry_device(hass, entry, first) is False
+    assert await async_remove_config_entry_device(hass, entry, second) is False
+    assert await async_remove_config_entry_device(hass, entry, account) is False
+
+    # The vendor stops listing the second bowl.
+    mock_api.device_rows_override = [device_row(DEVICE_ID)]
+    await entry.runtime_data.async_refresh()
+
+    assert await async_remove_config_entry_device(hass, entry, second) is True
+    assert await async_remove_config_entry_device(hass, entry, first) is False

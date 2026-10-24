@@ -144,6 +144,9 @@ async def async_get_config_entry_diagnostics(
                 else None
             ),
             "bowl_count": len(coordinator.data or {}),
+            # Left-out bowls never appear under "devices"; this is the only
+            # place a report shows that some were left out on purpose.
+            "left_out_bowls": sorted(device_label(device_id) for device_id in coordinator.ignored),
             # `notify/getConfig` is fetched once every ten polls, so "not
             # read yet" is a real state that makes every account-level
             # switch unavailable. Worth stating rather than leaving the

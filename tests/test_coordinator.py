@@ -21,6 +21,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.alwaysfull.const import (
+    CONF_IGNORED_BOWLS,
     DOMAIN,
     EMPTY_DEVICE_LIST_EVERY_N_POLLS,
     HISTORY_CHUNK_DAYS,
@@ -1328,3 +1329,53 @@ async def test_every_secondary_read_rests_after_a_failure_then_asks_again(
     assert config_calls(DEVICE_ID) == config_before + 2
     assert today_calls(DEVICE_ID) == today_before + 2
     assert coordinator.data[DEVICE_ID].water_today == 903
+
+
+async def _setup_leaving_out(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, left_out: list[str]
+) -> AlwaysFullCoordinator:
+    freezer.move_to(FROZEN_INSTANT)
+    await hass.config.async_set_time_zone(FROZEN_ZONE)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"email": "user@example.com", "password": "pw", "token": "T"},
+        options={CONF_IGNORED_BOWLS: left_out},
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.LOADED
+    return entry.runtime_data
+
+
+async def test_a_bowl_left_out_by_the_options_is_neither_polled_nor_reported(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """One account can carry another house's bowl; left out, it costs this Home Assistant nothing.
+
+    Not a request, not a `BowlData`, so no device and no entities. It stays
+    known by name, which is how the options flow can offer it back.
+    """
+    coordinator = await _setup_leaving_out(hass, freezer, [SECOND_DEVICE_ID])
+
+    assert coordinator.last_update_success is True
+    assert set(coordinator.data) == {DEVICE_ID}
+    assert SECOND_DEVICE_ID not in mock_api.device_config_calls
+    assert all(call[0] != SECOND_DEVICE_ID for call in mock_api.drinking_log_calls)
+    assert SECOND_DEVICE_ID not in mock_api.notify_log_calls
+    assert coordinator.known_bowls == {DEVICE_ID: "Test Bowl", SECOND_DEVICE_ID: "Second Bowl"}
+
+
+async def test_an_account_whose_every_bowl_is_left_out_is_not_called_empty(
+    hass: HomeAssistant,
+    mock_api: FakeAlwaysFullClient,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Leaving every bowl out is the owner's setting, not the vendor returning no bowls."""
+    coordinator = await _setup_leaving_out(hass, freezer, [DEVICE_ID, SECOND_DEVICE_ID])
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data == {}
+    assert mock_api.device_config_calls == []
+    assert _our_warnings(caplog) == []

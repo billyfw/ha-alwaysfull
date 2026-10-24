@@ -31,6 +31,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClien
 from custom_components.alwaysfull.config_flow import AlwaysFullConfigFlow
 from custom_components.alwaysfull.const import (
     API_BASE,
+    CONF_IGNORED_BOWLS,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -41,8 +42,9 @@ from custom_components.alwaysfull.exceptions import (
     AlwaysFullError,
     AlwaysFullRateLimitError,
 )
+from custom_components.alwaysfull.models import device_label
 
-from .conftest import FakeAlwaysFullClient
+from .conftest import DEVICE_ID, SECOND_DEVICE_ID, FakeAlwaysFullClient
 
 INTEGRATION_DIR = Path(__file__).parents[1] / "custom_components" / "alwaysfull"
 
@@ -405,7 +407,7 @@ async def test_options_flow_round_trips_the_interval(
     await hass.async_block_till_done()
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert entry.options == {CONF_SCAN_INTERVAL: 120}
+    assert entry.options == {CONF_SCAN_INTERVAL: 120, CONF_IGNORED_BOWLS: []}
     assert isinstance(entry.options[CONF_SCAN_INTERVAL], int)
     # The option name matches what the coordinator actually reads.
     assert scan_interval_seconds(entry) == 120
@@ -495,5 +497,72 @@ def test_translations_are_literal_and_complete() -> None:
     } <= set(config["abort"])
 
     options = english["options"]
-    assert set(options["step"]["init"]["data"]) == {CONF_SCAN_INTERVAL}
+    assert set(options["step"]["init"]["data"]) == {CONF_SCAN_INTERVAL, CONF_IGNORED_BOWLS}
     assert "invalid_scan_interval" in options["error"]
+
+
+def _bowl_choices(result: Any) -> dict[str, str]:
+    """Return the bowls the options form offers, device id -> the label shown."""
+    for key, selector in result["data_schema"].schema.items():
+        if key == CONF_IGNORED_BOWLS:
+            return {option["value"]: option["label"] for option in selector.config["options"]}
+    msg = "the options form offers no bowls"
+    raise AssertionError(msg)
+
+
+async def test_options_flow_offers_every_bowl_by_name_and_stores_the_ones_left_out(
+    hass: HomeAssistant, flow_api: FakeAlwaysFullClient
+) -> None:
+    """With the entry not loaded, the form reads the account once with the stored token. Never a login."""
+    entry = _add_entry(hass)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    assert _bowl_choices(result) == {DEVICE_ID: "Test Bowl", SECOND_DEVICE_ID: "Second Bowl"}
+    assert result["data_schema"]({})[CONF_IGNORED_BOWLS] == []
+    assert flow_api.device_list_calls == 1
+    assert flow_api.login_calls == []
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_SCAN_INTERVAL: 60, CONF_IGNORED_BOWLS: [SECOND_DEVICE_ID]}
+    )
+    await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options == {CONF_SCAN_INTERVAL: 60, CONF_IGNORED_BOWLS: [SECOND_DEVICE_ID]}
+
+
+async def test_options_flow_still_offers_a_left_out_bowl_when_the_vendor_cannot_be_read(
+    hass: HomeAssistant, flow_api: FakeAlwaysFullClient
+) -> None:
+    """A bowl already left out can always be put back, even with the vendor unreachable."""
+    entry = _add_entry(hass, options={CONF_IGNORED_BOWLS: [SECOND_DEVICE_ID]})
+    flow_api.fail_device_list(TimeoutError())
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert result["type"] is FlowResultType.FORM
+    assert _bowl_choices(result) == {SECOND_DEVICE_ID: device_label(SECOND_DEVICE_ID)}
+    assert result["data_schema"]({})[CONF_IGNORED_BOWLS] == [SECOND_DEVICE_ID]
+    assert flow_api.login_calls == []
+
+
+async def test_options_flow_uses_the_running_coordinators_bowls_when_loaded(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient
+) -> None:
+    """A loaded entry already knows every bowl, left-out ones included; no extra request is made.
+
+    `mock_api` alone, not `flow_api`: that fixture stubs entry setup, and
+    this test needs the real one so the coordinator exists.
+    """
+    entry = _add_entry(hass, options={CONF_IGNORED_BOWLS: [SECOND_DEVICE_ID]})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert mock_api.device_list_calls == 1
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert _bowl_choices(result) == {DEVICE_ID: "Test Bowl", SECOND_DEVICE_ID: "Second Bowl"}
+    assert result["data_schema"]({})[CONF_IGNORED_BOWLS] == [SECOND_DEVICE_ID]
+    # The coordinator's one poll at setup; opening the options asked the vendor nothing.
+    assert mock_api.device_list_calls == 1

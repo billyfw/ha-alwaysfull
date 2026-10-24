@@ -273,12 +273,14 @@
     "step": {
       "init": {
         "data": {
-          "scan_interval": "Polling interval (seconds)"
+          "scan_interval": "Polling interval (seconds)",
+          "ignored_bowls": "Bowls to leave out"
         },
         "data_description": {
-          "scan_interval": "How often Home Assistant asks the Always Full service for new data. Between 30 and 600 seconds; the default is 60. Shorter intervals put more load on the vendor's service."
+          "scan_interval": "How often Home Assistant asks the Always Full service for new data. Between 30 and 600 seconds; the default is 60. Shorter intervals put more load on the vendor's service.",
+          "ignored_bowls": "Bowls on this Always Full account that this Home Assistant should neither show nor poll, for example a bowl at another house. A bowl you leave out loses its device and entities here as soon as you save; untick it to bring them back."
         },
-        "description": "Choose how often your bowls are polled.",
+        "description": "Choose how often your bowls are polled, and which bowls on the account to leave out.",
         "title": "Always Full options"
       }
     }

@@ -9,7 +9,9 @@ Four entry points:
   re-login with the stored credentials fails, and Home Assistant lands the
   user here. The email is already known, so only the password is asked for.
 - `reconfigure` -- moves an entry to a different account.
-- options -- the poll interval, bounded 30-600 s.
+- options -- the poll interval, bounded 30-600 s, and the bowls on the
+  account to leave out of this Home Assistant (by name; stored as the
+  vendor's device ids).
 
 Platform notes, verified against the installed Home Assistant 2026.9.2
 rather than taken from tutorials (most of which are wrong on both counts):
@@ -35,6 +37,7 @@ import aiohttp
 import voluptuous as vol
 from homeassistant.config_entries import (
     ConfigEntry,
+    ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlowWithReload,
@@ -46,6 +49,10 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
@@ -53,6 +60,7 @@ from homeassistant.helpers.selector import (
 
 from .api import AlwaysFullClient
 from .const import (
+    CONF_IGNORED_BOWLS,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -61,7 +69,8 @@ from .const import (
     MIN_SCAN_INTERVAL,
 )
 from .coordinator import ha_utc_offset_hours
-from .exceptions import AlwaysFullAuthError, AlwaysFullRateLimitError
+from .exceptions import AlwaysFullAuthError, AlwaysFullError, AlwaysFullRateLimitError
+from .models import device_label
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -226,24 +235,31 @@ class AlwaysFullConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class AlwaysFullOptionsFlow(OptionsFlowWithReload):
-    """Expose the poll interval.
+    """Expose the poll interval and the bowls to leave out.
 
     `OptionsFlowWithReload` reloads the entry when the options change, which
-    is what makes a new interval take effect without a Home Assistant
-    restart. It is only legal because `__init__.py` registers no config
-    entry update listener -- with one, Home Assistant raises here.
+    is what makes a new interval, or a newly left-out bowl, take effect
+    without a Home Assistant restart. It is only legal because `__init__.py`
+    registers no config entry update listener -- with one, Home Assistant
+    raises here.
     """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Show and store the poll interval."""
+        """Show and store the poll interval and the left-out bowls."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
             seconds = _as_bounded_seconds(user_input.get(CONF_SCAN_INTERVAL))
             if seconds is not None:
-                return self.async_create_entry(data={CONF_SCAN_INTERVAL: seconds})
+                chosen = user_input.get(CONF_IGNORED_BOWLS) or []
+                return self.async_create_entry(
+                    data={
+                        CONF_SCAN_INTERVAL: seconds,
+                        CONF_IGNORED_BOWLS: sorted({str(item) for item in chosen if item}),
+                    }
+                )
             # Defence in depth. The selector below already rejects these
             # bounds, and the flow manager applies that schema before this
             # step ever runs, so in the normal UI/API path an out-of-range
@@ -254,6 +270,8 @@ class AlwaysFullOptionsFlow(OptionsFlowWithReload):
             errors[CONF_SCAN_INTERVAL] = "invalid_scan_interval"
 
         current = self.config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+        left_out = [str(item) for item in self.config_entry.options.get(CONF_IGNORED_BOWLS) or [] if item]
+        bowls = await self._async_known_bowls(left_out)
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
@@ -266,11 +284,54 @@ class AlwaysFullOptionsFlow(OptionsFlowWithReload):
                             unit_of_measurement="s",
                             mode=NumberSelectorMode.BOX,
                         )
-                    )
+                    ),
+                    vol.Optional(CONF_IGNORED_BOWLS, default=left_out): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[
+                                SelectOptionDict(value=device_id, label=name) for device_id, name in bowls.items()
+                            ],
+                            multiple=True,
+                            mode=SelectSelectorMode.LIST,
+                        )
+                    ),
                 }
             ),
             errors=errors,
         )
+
+    async def _async_known_bowls(self, left_out: list[str]) -> dict[str, str]:
+        """Return every bowl on the account, device id -> name, for the form to offer.
+
+        From the coordinator while the entry is loaded: it remembers every
+        bowl the vendor has listed, left-out ones included. Otherwise one
+        `device/list` read with the stored token -- a read, never a login,
+        since a login here would sign the running integration or the
+        owner's phone out (VENDOR-API 1.5). If that read fails the form
+        still offers the ids currently left out, so they can be put back.
+        """
+        entry = self.config_entry
+        bowls: dict[str, str] = {}
+        coordinator = getattr(entry, "runtime_data", None) if entry.state is ConfigEntryState.LOADED else None
+        if coordinator is not None:
+            bowls = dict(coordinator.known_bowls)
+        else:
+            client = AlwaysFullClient(
+                async_get_clientsession(self.hass),
+                token=entry.data.get(CONF_TOKEN, ""),
+                tz_offset_hours=ha_utc_offset_hours(),
+            )
+            try:
+                envelope = await client.device_list() or {}
+            except (AlwaysFullError, TimeoutError, aiohttp.ClientError, ValueError):
+                envelope = {}
+            for row in envelope.get("data") or []:
+                device_id = row.get("deviceId") if isinstance(row, dict) else None
+                if device_id:
+                    name = (row.get("deviceName") or "").strip() if isinstance(row.get("deviceName"), str) else ""
+                    bowls[str(device_id)] = name or device_label(str(device_id))
+        for device_id in left_out:
+            bowls.setdefault(device_id, device_label(device_id))
+        return bowls
 
 
 def _as_bounded_seconds(value: Any) -> int | None:
