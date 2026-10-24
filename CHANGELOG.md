@@ -4,9 +4,46 @@ Release notes, newest first. Releases before 0.4.0 predate this file; their
 changes are in the commit history, one `build: ship as <version>` commit per
 release.
 
-## Unreleased
+## 0.5.0
 
-### Three new sensors per bowl
+The first release of the `billyfw/ha-alwaysfull` fork. It carries two upstream
+pull requests that are open but not merged there (`paradigmshift6`'s #1 and #2,
+taken as they stand) and two changes of its own, both from a live install on
+2026-10-24 where the integration never got past "Initializing".
+
+### An offline bowl no longer takes the account's other bowls down
+
+The account had two bowls: one registered that morning and online, one at
+another house that had been unplugged for four days. The vendor answers the
+settings read (`device/config`) for an offline bowl with code 201 "The device
+is not online.", after about 13 seconds, and that single refusal failed every
+poll, so the bowl that was online never got its entities either.
+
+- The settings read is now a per-bowl secondary read. A failure keeps the
+  settings from the last poll that read them; a bowl whose settings have
+  never been read has `None`.
+- While a bowl's settings have never been read, its setting entities (the
+  numbers, the switches, the sleep-window times) are **unavailable** rather
+  than showing zeros the vendor never sent, and a settings write on it is
+  refused with a readable error, because every settings write replaces the
+  whole object. The select entities, the button and every sensor on that bowl
+  stay available: they come from the device row, which is listed for an
+  offline bowl too.
+- The diagnostics download shows `"config": null` for such a bowl.
+
+### Every secondary read rests after a failure, not only the alert log
+
+On the same install the vendor's log endpoints failed **together**: today's
+drinking log and the alert log (at page size 5 as well as 20) both sat 60
+seconds and answered an HTML 504, every call, for over an hour, while
+`device/list` and `device/config` kept answering in half a second. The
+rest-after-failure that #2 gave the alert log now applies to every secondary
+read, per bowl and per reading (`SECONDARY_RETRY_AFTER_POLLS`, still 2
+polls): a failing reading is asked for once every third poll instead of
+holding a minute-long query open on the vendor's side every minute, and a
+reading that works is never rested for one that does not.
+
+### Carried from upstream pull request #1: three new sensors per bowl
 
 - **Water lifetime** — every completed day since the bowl was registered plus
   today, as a `total_increasing` volume, so Home Assistant's long-term
@@ -24,7 +61,7 @@ release.
 Nothing existing changes: no entity ids, unique ids or states are affected.
 The diagnostics download gains `water_total` and `last_drink` per bowl.
 
-### One slow request no longer takes every entity unavailable
+### Carried from upstream pull request #2: one slow request no longer takes every entity unavailable
 
 Measured on a live install: the vendor's `notify/getNotifyLog` hung for 60–70
 seconds roughly every other poll until their gateway answered with an HTML

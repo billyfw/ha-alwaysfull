@@ -12,6 +12,14 @@
   <img src="https://img.shields.io/badge/iot__class-cloud__polling-orange.svg" alt="cloud polling">
 </p>
 
+> **This is `billyfw/ha-alwaysfull`, a fork of
+> [`rancur/ha-alwaysfull`](https://github.com/rancur/ha-alwaysfull).** It
+> exists because the upstream release (0.4.0) could not finish setting up on
+> an account with one offline bowl, and because its fixes are still open pull
+> requests there. What differs is in [CHANGELOG.md](CHANGELOG.md), newest
+> first. Install it as a HACS custom repository using **this** repository's
+> URL; everything below is upstream's documentation and still holds.
+
 Brings the [Always Full](https://alwaysfull.com/) automatic pet water bowl into
 Home Assistant: how much your pet drank today, whether the bowl is online,
 level, filling and healthy, how much filter life is left, and every setting the
@@ -114,7 +122,9 @@ a custom repository. This takes about a minute.
 
 1. Open **HACS** in Home Assistant.
 2. Click the **⋮** menu in the top right and choose **Custom repositories**.
-3. Paste `https://github.com/rancur/ha-alwaysfull` into **Repository**.
+3. Paste `https://github.com/billyfw/ha-alwaysfull` into **Repository**
+   (upstream is `https://github.com/rancur/ha-alwaysfull`; see the note at
+   the top of this page).
 4. Choose **Integration** as the **Type**, then click **Add**.
 5. Close the dialog. Search HACS for **Always Full** and open it.
 6. Click **Download**, then **Download** again to confirm.
