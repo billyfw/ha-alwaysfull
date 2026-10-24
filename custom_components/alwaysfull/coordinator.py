@@ -64,11 +64,14 @@ from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    AVAILABILITY_GRACE_SECONDS,
     CONF_IGNORED_BOWLS,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
@@ -301,6 +304,11 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
         # experiment that settles this.
         self.write_lock = asyncio.Lock()
         self._poll_count = 0
+        # When a poll last succeeded, for the availability grace: entities
+        # stay available with the last data for `AVAILABILITY_GRACE_SECONDS`
+        # after this while polls fail. See `recently_succeeded`.
+        self.last_success_at: datetime | None = None
+        self._grace_expiry_unsub: Callable[[], None] | None = None
         # When each re-login was ATTEMPTED, most recent last, pruned to
         # the last `RELOGIN_WINDOW_SECONDS`. Attempts, not successes: a
         # login that the vendor refused still cost the account a request,
@@ -315,8 +323,69 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
         # secondary read. See `_async_secondary`.
         self._rest: dict[tuple[str, str], int] = {}
 
+    @property
+    def recently_succeeded(self) -> bool:
+        """Return whether a poll succeeded within the availability grace.
+
+        What `available` reads alongside `last_update_success`: a poll that
+        fails after one that succeeded moments ago leaves the data as good
+        as it was, and the entities keep reporting it until the grace runs
+        out. The stamp is this coordinator's own, so a restart starts with
+        no grace: nothing is reported as available that has not been read.
+        """
+        return (
+            self.last_success_at is not None
+            and (dt_util.utcnow() - self.last_success_at).total_seconds() < AVAILABILITY_GRACE_SECONDS
+        )
+
+    @callback
+    def _arm_grace_expiry(self) -> None:
+        """Make the entities re-evaluate their availability when the grace runs out.
+
+        Home Assistant tells listeners about the FIRST failed poll (the
+        success-to-failure edge) and then stays silent while polls keep
+        failing, so without this the entities would hold their last state
+        past the grace with nothing prompting them to go unavailable. One
+        timer, re-armed only when none is pending; it does nothing if a
+        poll has succeeded by the time it fires.
+        """
+        if self._grace_expiry_unsub is not None or self.last_success_at is None:
+            return
+        remaining = AVAILABILITY_GRACE_SECONDS - (dt_util.utcnow() - self.last_success_at).total_seconds()
+
+        @callback
+        def _expired(_now: datetime) -> None:
+            self._grace_expiry_unsub = None
+            if not self.last_update_success:
+                self.async_update_listeners()
+
+        self._grace_expiry_unsub = async_call_later(self.hass, max(remaining, 0) + 1, _expired)
+
+    @callback
+    def _cancel_grace_expiry(self) -> None:
+        """Drop the pending grace timer, if any."""
+        if self._grace_expiry_unsub is not None:
+            self._grace_expiry_unsub()
+            self._grace_expiry_unsub = None
+
+    async def async_shutdown(self) -> None:
+        """Stop the poll and the grace timer: Home Assistant calls this on unload and on stop."""
+        self._cancel_grace_expiry()
+        await super().async_shutdown()
+
     async def _async_update_data(self) -> dict[str, BowlData]:
         """Poll every bowl, mapping vendor failures onto HA's error model."""
+        try:
+            data = await self._async_update_data_inner()
+        except UpdateFailed:
+            self._arm_grace_expiry()
+            raise
+        self.last_success_at = dt_util.utcnow()
+        self._cancel_grace_expiry()
+        return data
+
+    async def _async_update_data_inner(self) -> dict[str, BowlData]:
+        """Run the poll and map its failures; `_async_update_data` keeps the success stamp."""
         try:
             try:
                 return await self._async_fetch_all()

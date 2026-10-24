@@ -540,15 +540,19 @@ class AlwaysFullEntity(CoordinatorEntity[AlwaysFullCoordinator]):
 
     @property
     def available(self) -> bool:
-        """Available only while the last poll worked AND this bowl still exists.
+        """Available while polls work, or failed less than the grace ago, AND this bowl still exists.
 
         Deliberately not `super().available`: a bowl removed from the
         account keeps its entities registered but must stop reporting
-        stale values as if they were live.
+        stale values as if they were live. The grace
+        (`AVAILABILITY_GRACE_SECONDS`) is what keeps one vendor blip, a 603
+        or a timed-out device list, from taking every entity on the bowl
+        unavailable for a poll; the Last poll sensor carries the data's
+        real age meanwhile.
         """
-        return self.coordinator.last_update_success and self._device_id in (
-            self.coordinator.data or {}
-        )
+        return (
+            self.coordinator.last_update_success or self.coordinator.recently_succeeded
+        ) and self._device_id in (self.coordinator.data or {})
 
 
 class AlwaysFullWriteEntity(AlwaysFullEntity):
@@ -712,7 +716,9 @@ class AlwaysFullAccountEntity(CoordinatorEntity[AlwaysFullCoordinator]):
         state and not a corner case. Reporting it as "everything is off"
         would invite the user to switch on an alert that was already on.
         """
-        return self.coordinator.last_update_success and self.coordinator.notify_config is not None
+        return (
+            self.coordinator.last_update_success or self.coordinator.recently_succeeded
+        ) and self.coordinator.notify_config is not None
 
     async def async_save_notify_config(
         self,

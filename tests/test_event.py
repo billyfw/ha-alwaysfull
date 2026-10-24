@@ -22,15 +22,21 @@ shipped entity would never update.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
 
 import pytest
+from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components.event import ATTR_EVENT_TYPE, ATTR_EVENT_TYPES, EventDeviceClass
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE, STATE_UNKNOWN, Platform
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import async_capture_events, snapshot_platform
+from pytest_homeassistant_custom_component.common import (
+    async_capture_events,
+    async_fire_time_changed,
+    snapshot_platform,
+)
 from syrupy.assertion import SnapshotAssertion
 
 from custom_components.alwaysfull import event as event_module
@@ -38,6 +44,7 @@ from custom_components.alwaysfull.const import (
     ALERT_OPTIONS,
     ALERT_TYPE_OPTIONS,
     ATTR_RAW_TYPE,
+    AVAILABILITY_GRACE_SECONDS,
     UNKNOWN,
 )
 from custom_components.alwaysfull.event import (
@@ -430,9 +437,9 @@ async def test_an_empty_log_is_fine(
 
 
 async def test_an_outage_does_not_replay_the_page_on_recovery(
-    hass: HomeAssistant, mock_api: FakeAlwaysFullClient
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
 ) -> None:
-    """A failed poll blanks the entity; recovering must not re-fire history.
+    """Polls failing past the grace blank the entity; recovering must not re-fire history.
 
     The coordinator keeps its last data through a failure, so the recovery
     poll hands the entity the very same rows again.
@@ -451,6 +458,10 @@ async def test_an_outage_does_not_replay_the_page_on_recovery(
 
     mock_api.fail_device_list(AlwaysFullRateLimitError("429"))
     await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    # Inside the availability grace the last state stands; past it, the grace timer blanks them.
+    freezer.tick(timedelta(seconds=AVAILABILITY_GRACE_SECONDS + 5))
+    async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert hass.states.get(ALERT).state == STATE_UNAVAILABLE
 

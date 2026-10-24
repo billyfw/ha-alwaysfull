@@ -20,7 +20,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.alwaysfull import PLATFORMS
-from custom_components.alwaysfull.const import DOMAIN, RELOGIN_MAX_ATTEMPTS, SIGN_SECRET
+from custom_components.alwaysfull.const import AVAILABILITY_GRACE_SECONDS, DOMAIN, RELOGIN_MAX_ATTEMPTS, SIGN_SECRET
 from custom_components.alwaysfull.entity import (
     FILTER_GROUP,
     FLUSH_GROUP,
@@ -195,14 +195,17 @@ async def test_device_info_names_a_bowl_the_poll_no_longer_knows(
 
 
 async def test_available_tracks_update_success_and_membership(
-    hass: HomeAssistant, mock_api: FakeAlwaysFullClient
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
 ) -> None:
-    """Availability needs both a good poll and this device still present."""
+    """Availability needs a poll that worked, or one inside the grace, and this device still present."""
     entity = await _entity(hass)
     assert entity.available is True
 
     mock_api.fail_device_list(AlwaysFullRateLimitError("429"))
     await entity.coordinator.async_refresh()
+    # One failure inside the grace: still available, on the last data.
+    assert entity.available is True
+    freezer.tick(timedelta(seconds=AVAILABILITY_GRACE_SECONDS + 5))
     assert entity.available is False
 
     mock_api.device_list_error = None

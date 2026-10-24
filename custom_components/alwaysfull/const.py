@@ -247,3 +247,15 @@ NOTIFY_LOG_TIMEOUT_SECONDS = 55
 # with code 201 "The device is not online." after about 13 s, every time,
 # and its settings cannot change while nothing can reach it.
 SECONDARY_RETRY_AFTER_POLLS = 2
+
+# How long after the last successful poll the entities stay available while
+# polls fail. The vendor answers a single poll with 603 "too many requests"
+# now and then (twice on 2026-10-24, with nothing else signed in), or a
+# `device/list` times out, and Home Assistant's default of "unavailable the
+# moment one update fails" turned each of those into every entity on the
+# bowl going unavailable for a minute: a blank dashboard, a spike in the
+# history, and nothing anybody could act on. Five polls at the default
+# interval bridges a blip; a real outage still shows as unavailable within
+# five minutes, and the Last poll sensor says how old the readings are all
+# the while.
+AVAILABILITY_GRACE_SECONDS = 300

@@ -21,6 +21,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.alwaysfull.const import (
+    AVAILABILITY_GRACE_SECONDS,
     CONF_IGNORED_BOWLS,
     DOMAIN,
     EMPTY_DEVICE_LIST_EVERY_N_POLLS,
@@ -1436,3 +1437,69 @@ async def test_an_account_whose_every_bowl_is_left_out_is_not_called_empty(
     assert coordinator.data == {}
     assert mock_api.device_config_calls == []
     assert _our_warnings(caplog) == []
+
+
+
+async def test_one_failed_poll_keeps_the_bowl_available_within_the_grace(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """A 603 on one poll (twice on 2026-10-24) used to take every entity unavailable for a minute.
+
+    The data is as good as the last success; the entities keep it for the
+    grace, then go unavailable if the polls keep failing, and come back on
+    the first success.
+    """
+    coordinator = await _setup_frozen(hass, freezer)
+    assert coordinator.recently_succeeded is True
+
+    mock_api.fail_device_list(await vendor_error("603"))
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is False
+    assert coordinator.recently_succeeded is True
+    assert coordinator.data[DEVICE_ID].water_today == 903
+
+    freezer.tick(timedelta(seconds=AVAILABILITY_GRACE_SECONDS))
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is False
+    assert coordinator.recently_succeeded is False
+
+    mock_api.fail_device_list(await vendor_error("603"), times=0)
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert coordinator.recently_succeeded is True
+
+
+async def test_entities_go_unavailable_when_the_grace_runs_out_without_a_poll_to_say_so(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """Home Assistant notifies listeners on the first failure only; the grace timer does the rest."""
+    freezer.move_to(FROZEN_INSTANT)
+    await hass.config.async_set_time_zone(FROZEN_ZONE)
+    entry = MockConfigEntry(domain=DOMAIN, data={"email": "user@example.com", "password": "pw", "token": "T"})
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    online = next(
+        s.entity_id for s in hass.states.async_all("binary_sensor") if s.entity_id.endswith("test_bowl_online")
+    )
+    assert hass.states.get(online).state == "on"
+
+    mock_api.fail_device_list(TimeoutError())
+    freezer.tick(timedelta(minutes=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    # The first failure is announced; the entity keeps its last state inside the grace.
+    assert hass.states.get(online).state == "on"
+
+    freezer.tick(timedelta(seconds=AVAILABILITY_GRACE_SECONDS + 5))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(online).state == "unavailable"
+
+    mock_api.fail_device_list(TimeoutError(), times=0)
+    freezer.tick(timedelta(minutes=1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(online).state == "on"

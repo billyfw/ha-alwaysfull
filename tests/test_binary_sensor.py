@@ -8,13 +8,17 @@ meaning for it would raise an alert on a field we do not understand.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
+from freezegun.api import FrozenDateTimeFactory
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import snapshot_platform
+from pytest_homeassistant_custom_component.common import async_fire_time_changed, snapshot_platform
 from syrupy.assertion import SnapshotAssertion
 
+from custom_components.alwaysfull.const import AVAILABILITY_GRACE_SECONDS
 from custom_components.alwaysfull.exceptions import AlwaysFullRateLimitError
 
 from .conftest import FakeAlwaysFullClient, device_row, setup_platform
@@ -148,9 +152,9 @@ async def test_water_source_detached(
 
 
 async def test_binary_sensors_go_unavailable_and_come_back(
-    hass: HomeAssistant, mock_api: FakeAlwaysFullClient
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
 ) -> None:
-    """A failed poll blanks them; the next good poll restores the real value."""
+    """Polls failing past the grace blank them; the next good poll restores the real value."""
     entry = await setup_platform(hass, Platform.BINARY_SENSOR)
     coordinator = entry.runtime_data
     assert hass.states.get(f"{WALL}online").state == STATE_ON
@@ -158,6 +162,11 @@ async def test_binary_sensors_go_unavailable_and_come_back(
 
     mock_api.fail_device_list(AlwaysFullRateLimitError("429"))
     await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(f"{WALL}online").state == STATE_ON
+    # Inside the availability grace the last state stands; past it, the grace timer blanks them.
+    freezer.tick(timedelta(seconds=AVAILABILITY_GRACE_SECONDS + 5))
+    async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert hass.states.get(f"{WALL}online").state == STATE_UNAVAILABLE
     assert hass.states.get(f"{WALL}pump_alarm").state == STATE_UNAVAILABLE

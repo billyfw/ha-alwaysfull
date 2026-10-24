@@ -19,12 +19,13 @@ from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from pytest_homeassistant_custom_component.common import (
+    async_fire_time_changed,
     mock_restore_cache_with_extra_data,
     snapshot_platform,
 )
 from syrupy.assertion import SnapshotAssertion
 
-from custom_components.alwaysfull.const import ATTR_RAW_TYPE, UNKNOWN
+from custom_components.alwaysfull.const import ATTR_RAW_TYPE, AVAILABILITY_GRACE_SECONDS, UNKNOWN
 from custom_components.alwaysfull.exceptions import AlwaysFullRateLimitError
 from custom_components.alwaysfull.sensor import ATTR_RAW_SLAVE_TYPE, SENSORS
 
@@ -405,15 +406,20 @@ async def test_firmware_reports_the_device_version_when_enabled(
 
 
 async def test_sensors_go_unavailable_and_come_back(
-    hass: HomeAssistant, mock_api: FakeAlwaysFullClient
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
 ) -> None:
-    """A failed poll blanks the sensors; the next good poll restores them."""
+    """Polls failing past the grace blank the sensors; the next good poll restores them."""
     entry = await setup_platform(hass, Platform.SENSOR)
     coordinator = entry.runtime_data
     assert hass.states.get(f"{WALL}water_today").state == "903"
 
     mock_api.fail_device_list(AlwaysFullRateLimitError("429"))
     await coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(f"{WALL}water_today").state == "903"
+    # Inside the availability grace the last state stands; past it, the grace timer blanks them.
+    freezer.tick(timedelta(seconds=AVAILABILITY_GRACE_SECONDS + 5))
+    async_fire_time_changed(hass)
     await hass.async_block_till_done()
     assert hass.states.get(f"{WALL}water_today").state == STATE_UNAVAILABLE
     assert hass.states.get(f"{WALL}water_source").state == STATE_UNAVAILABLE
