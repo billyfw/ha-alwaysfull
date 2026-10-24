@@ -22,13 +22,14 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 FORK = "billyfw/ha-alwaysfull"
 DOMAIN = "alwaysfull"
 TOOLS = Path.home() / "devprojects/network-management/tools"
 
 
-def _ha(house: str):
+def _ha(house: str) -> Any:
     sys.path.insert(0, str(TOOLS))
     try:
         from ha_supervisor_ws import HA  # type: ignore[import-not-found]  # noqa: PLC0415
@@ -37,12 +38,12 @@ def _ha(house: str):
     return HA(house)
 
 
-def _records(ha) -> list[dict]:
+def _records(ha: Any) -> list[dict[str, Any]]:
     repos = ha.call(type="hacs/repositories/list", categories=["integration"])
     return [r for r in repos if r.get("domain") == DOMAIN or r.get("full_name") == FORK]
 
 
-def _show(records: list[dict]) -> None:
+def _show(records: list[dict[str, Any]]) -> None:
     if not records:
         print("no HACS record for alwaysfull")
     for r in records:
@@ -86,7 +87,7 @@ def main() -> None:
     fork = next((r for r in records if r.get("full_name") == FORK), None)
     if fork is None:
         sys.exit(f"{FORK} is not a HACS record on {args.house}; run switch first")
-    payload = {"type": "hacs/repository/download", "repository": fork["id"]}
+    payload: dict[str, Any] = {"type": "hacs/repository/download", "repository": fork["id"]}
     if args.version:
         payload["version"] = args.version
     print(f"downloading {FORK} {args.version or '(latest release)'}")
