@@ -63,7 +63,7 @@ Read `docs/VENDOR-API.md` sections 1.4, 1.5 and 12 before touching the API clien
 - [x] 2026-10-24 08:52 HST: **0.5.2 staged on the box** (files only; loads at the next restart, no
       restart asked for it): the device cleanup calls `async_remove_device`, because 2026.9 logged the
       `remove_config_entry_id` form as deprecated the one time it ran (removed in 2027.8).
-- [x] 2026-10-24 09:3x HST: **0.5.3 staged on the box** (files only; loads at the next restart): a failed or
+- [x] 2026-10-24 10:28 HST: **0.5.3 live** (restart 10:22 on the owner's go; staged 09:3x): a failed or
       rested read of today's log keeps the same day's last reading with its stamp (water today had flipped
       number/unknown every few polls all day), and three diagnostic timestamp sensors per bowl: Last poll,
       Water log last read, Alert log last read (`sensor.bowl1_last_poll`, `sensor.bowl1_water_log_last_read`,
