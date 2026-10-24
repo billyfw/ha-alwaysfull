@@ -91,10 +91,12 @@ vendor can move a bowl between accounts), or ha-lau forwarding its states to ha-
 2. Commit, push `main`, tag `vX.Y.Z` (`git tag -a vX.Y.Z -m ...; git push origin vX.Y.Z`) and
    `gh release create vX.Y.Z --title X.Y.Z --notes-file <the CHANGELOG section>`. HACS installs
    releases; a tag without a release is not offered.
-3. On the box: HACS shows the update (or, from dev, the HACS websocket: `hacs/repository/info` for
-   the id, `hacs/repository/download` with `repository` = that id; the ha-config CLAUDE.md "HA Core
-   upgrades" describes the same calls). The first time only: remove upstream's record and add this
-   repository as a custom repository (`hacs/repositories/add`, category `integration`).
+3. On the box: `scripts/hacs.py status` shows HACS's records; `scripts/hacs.py download --yes`
+   installs the latest release of this fork (`--version vX.Y.Z` for a specific one); the first time
+   only, `scripts/hacs.py switch --yes` removes upstream's record (HACS deletes the files with it),
+   adds this repository as a custom repository and downloads the release. Websocket calls
+   `hacs/repository/remove`, `hacs/repositories/add`, `hacs/repository/download`, through
+   network-management `tools/ha_supervisor_ws.py`; the HACS UI does the same by hand.
 4. **Restart HA with the owner's go** (new Python needs a restart; a reload of the entry keeps the old
    modules). The box's git autocommit then commits `custom_components/alwaysfull` into ha-lau-config
    as `HACS: Always Full <old> -> <new>`; `git -C ~/devprojects/ha-lau-config pull` afterwards.
