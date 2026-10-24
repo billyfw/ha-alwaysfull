@@ -63,6 +63,12 @@ Read `docs/VENDOR-API.md` sections 1.4, 1.5 and 12 before touching the API clien
 - [x] 2026-10-24 08:52 HST: **0.5.2 staged on the box** (files only; loads at the next restart, no
       restart asked for it): the device cleanup calls `async_remove_device`, because 2026.9 logged the
       `remove_config_entry_id` form as deprecated the one time it ran (removed in 2027.8).
+- [x] 2026-10-24 09:3x HST: **0.5.3 staged on the box** (files only; loads at the next restart): a failed or
+      rested read of today's log keeps the same day's last reading with its stamp (water today had flipped
+      number/unknown every few polls all day), and three diagnostic timestamp sensors per bowl: Last poll,
+      Water log last read, Alert log last read (`sensor.bowl1_last_poll`, `sensor.bowl1_water_log_last_read`,
+      `sensor.bowl1_alert_log_last_read` on ha-lau). ha-lau's `packages/water_bowl.yaml` (the syshealth
+      heartbeat, the offline and problem pushes) and the dog's page of Lau Management read them.
 - [ ] Record the house entity ids in ha-lau-config `registry/manifest.yaml` (names, area, exposure).
 - [ ] Then, designed with the owner: a `packages/water_bowl.yaml` in ha-lau-config (alert pushes
       through `script.lau_notify_household`, a syshealth heartbeat like halo's).
