@@ -4,6 +4,21 @@ Release notes, newest first. Releases before 0.4.0 predate this file; their
 changes are in the commit history, one `build: ship as <version>` commit per
 release.
 
+## 0.5.3
+
+### A stalled log backend no longer blanks the day's reading, and three read clocks say how old things are
+
+On 2026-10-24 the vendor's log endpoints answered for a minute and stalled for
+twenty, all day, so **Water today** flipped between a number and `unknown`
+every few polls. Now a failed (or rested) read of today's log keeps the same
+local day's last answer, the vendor's own, and a new day starts from nothing;
+the lifetime total follows it. Three diagnostic timestamp sensors per bowl
+make the age visible: **Last poll** (every successful poll), **Water log last
+read** and **Alert log last read** (only when that read succeeds). A
+dashboard can then say "0 fl oz, read at 08:47" and an automation can tell
+"the vendor's logs have not answered for two hours" from "the bowl is fine".
+The diagnostics download carries the same three stamps.
+
 ## 0.5.2
 
 ### Removing a left-out bowl's device the way Home Assistant 2026.9 wants
