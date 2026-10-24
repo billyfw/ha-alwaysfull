@@ -31,7 +31,7 @@ TOOLS = Path.home() / "devprojects/network-management/tools"
 def _ha(house: str):
     sys.path.insert(0, str(TOOLS))
     try:
-        from ha_supervisor_ws import HA  # noqa: PLC0415
+        from ha_supervisor_ws import HA  # type: ignore[import-not-found]  # noqa: PLC0415
     except ImportError as err:
         sys.exit(f"need {TOOLS}/ha_supervisor_ws.py: {err}")
     return HA(house)
@@ -54,6 +54,7 @@ def _show(records: list[dict]) -> None:
 
 
 def main() -> None:
+    """Run one action against the house's HACS."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--house", default="lau", choices=["lau", "mad"])
     parser.add_argument("action", choices=["status", "switch", "download"])
