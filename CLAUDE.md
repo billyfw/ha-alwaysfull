@@ -3,7 +3,7 @@
 > **House: ha-lau (the house) polls the account; the account carries both houses' bowls.** This
 > integration is installed on the house HA box only. The `ha-lau-config` CLAUDE.md rules
 > apply to anything touching that box: never restart or reload HA without the owner's explicit
-> approval, always say which house, check live state before claiming it. the other house's HA must NOT
+> approval, always say which house, check live state before claiming it. The other house's HA must NOT
 > get a copy of this integration on the same account (see Guards: one session per account).
 
 ## What this is
@@ -35,7 +35,7 @@ Read `docs/VENDOR-API.md` sections 1.4, 1.5 and 12 before touching the API clien
   `device/list` 0.6 s and `device/config` 0.5 s for the online bowl, every time; `drinking/log`
   for today and `notify/getNotifyLog` (page size 5 and 20) 60 s then an HTML `504 Gateway
   Time-out`, every call for over an hour, then the drinking log answered once in 15.6 s while the
-  alert log still 504'd; `device/config` for the offline the other house bowl 13.4 s then code 201 "The
+  alert log still 504'd; `device/config` for the other house's offline bowl 13.4 s then code 201 "The
   device is not online." Either of the last two failed upstream 0.4.0's first poll, so the entry
   cycled `setup_in_progress` (about 108 s per try) and `setup_retry` for hours and never loaded.
   HA logs that retry at INFO only.
@@ -96,9 +96,9 @@ Read `docs/VENDOR-API.md` sections 1.4, 1.5 and 12 before touching the API clien
   vendor's `deviceId` is the bowl's MAC; write the integration's own label, `bowl-xxxxxxxx` from
   `device_label()`), no email address, no street address, no token. `scripts/check_no_pii.py` scans the
   working tree AND the whole history and is a CI gate upstream; a finding in history means a rewrite and
-  a force-push (done once, 2026-10-24, for two device ids this file carried for twenty minutes). The one
-  finding left is the commit author address (the owner's gmail, his global git identity): switching this
-  clone to a GitHub noreply address and rewriting is his call. The raw ids live in ha-lau-config
+  a force-push (done once, 2026-10-24, for two device ids this file carried for twenty minutes). Every commit's author and committer is the fork owner's GitHub no-reply address (a mailmap rewrite on
+  2026-10-24, with the owner's and the household's names and the house names replaced in every blob; the
+  checker's allowlist carries it with its reason). Names, places and host names are not written here at all. The raw ids live in ha-lau-config
   `docs/devices/water-bowl.md` (private).
 - Poll interval stays at the 60 s default (the vendor's app polls every 3 s while open); the
   re-login budget (3 per 5 min) and the rests are the protection against the vendor's `603` rate

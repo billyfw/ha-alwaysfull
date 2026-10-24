@@ -94,6 +94,10 @@ RESERVED_EMAIL_DOMAINS = (
 ALLOWED_EMAILS = {
     # Role addresses that appear in commit trailers, not in content.
     "noreply@anthropic.com": "Claude Code's co-author trailer; a no-reply role address.",
+    "71735642+billyfw@users.noreply.github.com": (
+        "the fork owner's GitHub no-reply address, the identity every commit here carries since the\n"
+        "        2026-10-24 rewrite; it routes nowhere."
+    ),
     "rancur@users.noreply.github.com": (
         "GitHub's own privacy address for the repository owner's pseudonymous "
         "handle, which is already public in the manifest's codeowners field. "
