@@ -76,17 +76,18 @@ def _async_remove_left_out_devices(
     A bowl left out AFTER it was set up would otherwise linger as a device
     with thirty-odd unavailable entities. The options flow reloads the
     entry, which brings setup back through here, so the device goes the
-    moment the option is saved. Removing the config entry from the device
-    rather than deleting the device outright is Home Assistant's own rule:
-    the device is deleted when no other config entry claims it, which for a
-    bowl is always.
+    moment the option is saved. `async_remove_device`, not
+    `async_update_device(remove_config_entry_id=...)`: since Home Assistant
+    2026.9 a device belongs to exactly one config entry, the older form is
+    reported as deprecated at every call (seen live 2026-10-24) and stops
+    working in 2027.8. Removing the device removes its entities with it.
     """
     if not coordinator.ignored:
         return
     registry = dr.async_get(hass)
     for device in dr.async_entries_for_config_entry(registry, entry.entry_id):
         if _bowl_ids(device) & coordinator.ignored:
-            registry.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
+            registry.async_remove_device(device.id)
 
 
 async def async_remove_config_entry_device(
