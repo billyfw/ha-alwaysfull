@@ -53,12 +53,17 @@ Read `docs/VENDOR-API.md` sections 1.4, 1.5 and 12 before touching the API clien
       endpoints 504, the other house bowl's setting controls unavailable. The rests work (debug log: a
       rested poll takes 2.5 s, an attempt poll about 20 s). The box's autocommit recorded it in
       ha-lau-config (`HACS: Always Full removed`, `HACS: Always Full 0.5.0 (new)`).
-- [x] 2026-10-24 08:40 HST: **0.5.1 (bowls to leave out) released and downloaded to the box**; HA still
-      runs 0.5.0 in memory until the next restart.
-- [ ] Restart HA (**the owner's go**), then save the option leaving out the other house bowl (the Configure
-      dialog, or the options flow over REST); saving reloads the entry and removes that device and its
-      36 entities. Record the house entity ids in ha-lau-config `docs/devices/water-bowl.md` and the
-      registry manifest.
+- [x] 2026-10-24 08:40 HST: 0.5.1 (bowls to leave out) released and downloaded to the box.
+- [x] 2026-10-24 08:41 HST: HA restarted on the owner's go ("Go"), **0.5.1 live** (RUNNING 08:45:17, the entry
+      loaded with it; `manifest/get` 0.5.1). 08:45:51 the option saved over REST (the form offered
+      "bowl1" and "the other house Water Bowl" by name; `ignored_bowls` = the other house id, 60 s kept); the reload
+      finished 08:47:11 and **the other house device and its 36 entities are gone**: devices bowl1 (36) and
+      the account (12), 48 entities, nothing newly unavailable, 74 of 74 automations on. The first poll
+      after the reload got the drinking log: `sensor.bowl1_water_today` reads 0 fl oz, a number at last.
+- [x] 2026-10-24 08:52 HST: **0.5.2 staged on the box** (files only; loads at the next restart, no
+      restart asked for it): the device cleanup calls `async_remove_device`, because 2026.9 logged the
+      `remove_config_entry_id` form as deprecated the one time it ran (removed in 2027.8).
+- [ ] Record the house entity ids in ha-lau-config `registry/manifest.yaml` (names, area, exposure).
 - [ ] Then, designed with the owner: a `packages/water_bowl.yaml` in ha-lau-config (alert pushes
       through `script.lau_notify_household`, a syshealth heartbeat like halo's).
 
