@@ -69,6 +69,9 @@ Read `docs/VENDOR-API.md` sections 1.4, 1.5 and 12 before touching the API clien
       Water log last read, Alert log last read (`sensor.bowl1_last_poll`, `sensor.bowl1_water_log_last_read`,
       `sensor.bowl1_alert_log_last_read` on ha-lau). ha-lau's `packages/water_bowl.yaml` (the syshealth
       heartbeat, the offline and problem pushes) and the dog's page of Lau Management read them.
+- [x] 2026-10-24 11:3x HST: **0.5.4 staged on the box** (loads at the next restart): an availability grace of
+      five minutes after the last good poll, because a single 603 from the vendor at 11:11 took every entity
+      unavailable for a poll and blanked the dog's page.
 - [ ] Record the house entity ids in ha-lau-config `registry/manifest.yaml` (names, area, exposure).
 - [ ] Then, designed with the owner: a `packages/water_bowl.yaml` in ha-lau-config (alert pushes
       through `script.lau_notify_household`, a syshealth heartbeat like halo's).
