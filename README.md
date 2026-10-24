@@ -158,6 +158,9 @@ and nothing is changed on your Always Full account.
 Everything except the poll interval is an entity, changeable from the device
 page. The poll interval lives in the options flow:
 
+
+**Leaving a bowl out.** The same options dialog lists every bowl on the account by name; tick one under **Bowls to leave out** and this Home Assistant stops showing and polling it, removing its device and entities as soon as you save. For an account that carries bowls at more than one house, where only one Home Assistant may poll the account (see the single-session rule under Troubleshooting), this is how the other house's bowl stays out of this one. Untick it to bring it back.
+
 **Settings → Devices & Services → Always Full → Configure**
 
 | Option | Default | Range | Notes |

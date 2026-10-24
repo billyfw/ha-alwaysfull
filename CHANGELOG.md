@@ -4,6 +4,26 @@ Release notes, newest first. Releases before 0.4.0 predate this file; their
 changes are in the commit history, one `build: ship as <version>` commit per
 release.
 
+## 0.5.1
+
+### Bowls to leave out
+
+One Always Full account can carry bowls at more than one house, and because
+the vendor allows one session per account only one Home Assistant may poll it,
+so the other house's bowl showed up here with thirty-odd entities nobody
+wanted. The options dialog now lists every bowl on the account by name under
+**Bowls to leave out**. A bowl that is left out gets no device, no entities and
+no requests; saving the option reloads the entry, and the reload removes the
+bowl's device (and with it its entities) if it had already been created.
+Untick it to bring it back. The form takes the names from the running
+integration, or, while the entry is not loaded, from one `device/list` read
+with the stored token; it never signs in. Diagnostics list the left-out bowls
+by their labels.
+
+A bowl's device can also be deleted from its device page once the entry no
+longer provides it (left out, or gone from the account); a bowl still polled,
+and the account device, cannot.
+
 ## 0.5.0
 
 The first release of the `billyfw/ha-alwaysfull` fork. It carries two upstream
