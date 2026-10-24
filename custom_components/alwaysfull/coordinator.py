@@ -460,6 +460,9 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
                 device_id,
                 partial(self._async_water_today, device_id, state.units, today),
             )
+            water_today: int | None
+            water_today_read_at: datetime | None
+            water_today_date: str | None
             if not isinstance(today_read, _Failed):
                 water_today = today_read
                 water_today_read_at = now
