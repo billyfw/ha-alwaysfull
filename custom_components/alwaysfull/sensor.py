@@ -123,7 +123,7 @@ def _filter_state(bowl: BowlData) -> dict[str, Any]:
     recombined here.
     """
     return {
-        "filterCanUseTime": bowl.config.filter_can_use_time_seconds,
+        "filterCanUseTime": None if bowl.config is None else bowl.config.filter_can_use_time_seconds,
         "filterUsedTime": bowl.state.filter_used_time,
     }
 

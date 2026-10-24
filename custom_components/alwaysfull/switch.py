@@ -45,7 +45,7 @@ from .entity import (
     LOG_GROUP,
     SLEEP_GROUP,
     AlwaysFullAccountEntity,
-    AlwaysFullWriteEntity,
+    AlwaysFullSettingEntity,
     ConfigGroup,
     async_add_bowl_entities,
 )
@@ -256,7 +256,7 @@ async def async_setup_entry(
     )
 
 
-class AlwaysFullSwitch(AlwaysFullWriteEntity, SwitchEntity):
+class AlwaysFullSwitch(AlwaysFullSettingEntity, SwitchEntity):
     """One on/off setting on one bowl."""
 
     entity_description: AlwaysFullSwitchEntityDescription
@@ -264,10 +264,10 @@ class AlwaysFullSwitch(AlwaysFullWriteEntity, SwitchEntity):
     @property
     def is_on(self) -> bool | None:
         """Return whether the setting is on, from the last poll."""
-        bowl = self.bowl
-        if bowl is None:
+        settings = self.settings
+        if settings is None:
             return None
-        return self.entity_description.value_fn(bowl.config)
+        return self.entity_description.value_fn(settings)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the setting on."""

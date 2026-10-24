@@ -224,4 +224,18 @@ REQUEST_TIMEOUT_SECONDS = 30
 # successful reads.
 NOTIFY_LOG_PAGE_SIZE = 5
 NOTIFY_LOG_TIMEOUT_SECONDS = 55
-NOTIFY_LOG_RETRY_AFTER_POLLS = 2
+
+# After a secondary read fails, how many polls pass before that read is
+# asked for again. One rest for EVERY secondary read, not only the notify
+# log, because the vendor's log endpoints fail together: on 2026-10-24
+# today's drinking log and the notify log (at page size 5 as well as 20)
+# both sat 60 s and answered an HTML 504, every call, for over an hour,
+# while `device/list` and `device/config` kept answering in half a second.
+# A per-read, per-bowl rest keeps the reads that work on their every-poll
+# cadence, asks for a failing one once every `SECONDARY_RETRY_AFTER_POLLS
+# + 1` polls, and puts a read that succeeds straight back to every poll.
+#
+# The settings read rests the same way: a bowl that is offline answers it
+# with code 201 "The device is not online." after about 13 s, every time,
+# and its settings cannot change while nothing can reach it.
+SECONDARY_RETRY_AFTER_POLLS = 2

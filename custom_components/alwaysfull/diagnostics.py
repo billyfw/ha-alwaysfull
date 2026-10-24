@@ -104,7 +104,7 @@ def _bowl_diagnostics(bowl: BowlData) -> dict[str, Any]:
     return {
         "id": device_label(bowl.device_id),
         "state": dataclasses.asdict(bowl.state),
-        "config": dataclasses.asdict(bowl.config),
+        "config": None if bowl.config is None else dataclasses.asdict(bowl.config),
         "water_today": bowl.water_today,
         "water_total": bowl.water_total,
         "last_drink": bowl.last_drink,

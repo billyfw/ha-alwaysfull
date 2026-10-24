@@ -9,6 +9,7 @@ import aiohttp
 import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
+from homeassistant.const import STATE_UNAVAILABLE, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -35,6 +36,7 @@ from custom_components.alwaysfull.entity import (
 from custom_components.alwaysfull.exceptions import (
     AlwaysFullAuthError,
     AlwaysFullCredentialsError,
+    AlwaysFullError,
     AlwaysFullRateLimitError,
 )
 from custom_components.alwaysfull.models import device_label
@@ -800,3 +802,43 @@ async def test_the_account_write_path_reports_a_failure_the_same_way(
     assert "Nothing was changed" not in message
     # Named for what it is: there is no bowl to name on this path.
     assert "notification settings" in message
+
+
+async def test_setting_entities_are_unavailable_until_the_bowls_settings_are_read(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient
+) -> None:
+    """An offline bowl's settings cannot be read; its controls say so instead of showing zeros.
+
+    The select entities and the sensors on the same bowl stay available:
+    they come from the device row, which the vendor lists for an offline
+    bowl too. The other bowl is untouched.
+    """
+    mock_api.fail_device_config(
+        AlwaysFullError("The device is not online.", code="201"), device_id=SECOND_DEVICE_ID
+    )
+    await setup_platforms(hass, [Platform.NUMBER, Platform.SWITCH, Platform.TIME, Platform.SELECT, Platform.SENSOR])
+
+    def states(domain: str, prefix: str) -> set[str]:
+        found = {s.state for s in hass.states.async_all(domain) if s.entity_id.startswith(f"{domain}.{prefix}_")}
+        assert found, f"no {domain} entities for {prefix}"
+        return found
+
+    for domain in ("number", "switch", "time"):
+        assert states(domain, "second_bowl") == {STATE_UNAVAILABLE}
+        assert STATE_UNAVAILABLE not in states(domain, "test_bowl")
+    for domain in ("select", "sensor"):
+        assert STATE_UNAVAILABLE not in states(domain, "second_bowl")
+
+
+async def test_a_settings_write_is_refused_while_the_settings_were_never_read(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient
+) -> None:
+    """Every settings write replaces the whole object; with nothing read there is nothing to send."""
+    mock_api.fail_device_config(AlwaysFullError("The device is not online.", code="201"))
+    entity = await _write_entity(hass)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await entity.async_write_config(FLUSH_GROUP, lambda _config: None)
+
+    assert "have not been read" in str(err.value)
+    assert mock_api.writes == []

@@ -569,6 +569,12 @@ class AlwaysFullWriteEntity(AlwaysFullEntity):
         rejected it is worse than showing the old one.
         """
         bowl = self._require_bowl()
+        if bowl.config is None:
+            msg = (
+                "This bowl's settings have not been read from Always Full yet (the bowl may be "
+                "offline), so there is nothing to change them against"
+            )
+            raise HomeAssistantError(msg)
         config = dataclasses.replace(bowl.config)
         mutate(config)
         try:
@@ -638,6 +644,34 @@ class AlwaysFullWriteEntity(AlwaysFullEntity):
             msg = "This bowl is no longer on the Always Full account"
             raise HomeAssistantError(msg)
         return bowl
+
+
+class AlwaysFullSettingEntity(AlwaysFullWriteEntity):
+    """One bowl's entity whose value is a field of the bowl's settings object.
+
+    Unavailable, not zero, while those settings have never been read. The
+    vendor refuses the settings read for an offline bowl, and a flush
+    interval of 0 minutes on a bowl whose real interval is simply unknown
+    would be a fabricated value on a control somebody may act on. Settings
+    read on an earlier poll keep the entity available, with those values,
+    through a read that fails later (`AlwaysFullCoordinator._async_config`).
+
+    The select and button entities are write entities too but not setting
+    entities: they read and write the device row, which `device/list`
+    carries for an offline bowl as well.
+    """
+
+    @property
+    def available(self) -> bool:
+        """Available while the bowl is, and only once its settings have been read."""
+        bowl = self.bowl
+        return super().available and bowl is not None and bowl.config is not None
+
+    @property
+    def settings(self) -> BowlConfig | None:
+        """Return the bowl's settings from the last poll that read them, or `None`."""
+        bowl = self.bowl
+        return None if bowl is None else bowl.config
 
 
 class AlwaysFullAccountEntity(CoordinatorEntity[AlwaysFullCoordinator]):

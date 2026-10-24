@@ -6,9 +6,9 @@ Polling shape, per cycle:
   full device state, byte-identical in shape to `device/detail`, so the
   N extra detail calls the vendor app makes buy nothing here.
 - per device: `device/config`, today's `drinking/log`, and `notify/log`.
-  Of these only `device/config` is load-bearing: a failure of today's log,
-  of the history read or of the notify log degrades THAT reading and keeps
-  the rest of the bowl live. See `_async_secondary`.
+  Every one of them is a secondary read: a failure degrades THAT reading of
+  THAT bowl and keeps the rest of the bowl, and every other bowl, live.
+  Only `device/list` can fail the poll. See `_async_secondary`.
 - per device, only on the first poll and then once a day: the
   `drinking/log` for every completed day not yet folded into the lifetime
   total, in windows of at most `HISTORY_CHUNK_DAYS`. See `BowlHistory`.
@@ -59,6 +59,7 @@ import asyncio
 import dataclasses
 import time
 from datetime import date, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
@@ -77,9 +78,9 @@ from .const import (
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
     NOTIFY_CONFIG_EVERY_N_POLLS,
-    NOTIFY_LOG_RETRY_AFTER_POLLS,
     RELOGIN_MAX_ATTEMPTS,
     RELOGIN_WINDOW_SECONDS,
+    SECONDARY_RETRY_AFTER_POLLS,
 )
 from .exceptions import (
     AlwaysFullAuthError,
@@ -114,7 +115,7 @@ class _Failed:
 FAILED = _Failed()
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
+    from collections.abc import Awaitable, Callable
 
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
@@ -161,7 +162,13 @@ class BowlData:
 
     device_id: str
     state: BowlState
-    config: BowlConfig
+    # `None` while this bowl's settings have never been read: the vendor
+    # refuses the settings read for an offline bowl. The setting entities
+    # are unavailable then, and a settings write is refused, because every
+    # one of them is a read-modify-write of the whole object. Settings read
+    # on an earlier poll are kept through a read that fails later. See
+    # `AlwaysFullCoordinator._async_config`.
+    config: BowlConfig | None
     water_today: int | None
     notifications: list[dict[str, Any]]
     raw: dict[str, Any]
@@ -269,9 +276,9 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
         self._empty_polls = 0
         # Per-bowl memory that outlives a poll. See `BowlHistory`.
         self._history: dict[str, BowlHistory] = {}
-        # Polls still to skip on each bowl's notify log after a failed
-        # read. See `_async_notifications`.
-        self._notify_skip: dict[str, int] = {}
+        # Polls still to skip for each (bowl, reading) after a failed
+        # secondary read. See `_async_secondary`.
+        self._rest: dict[tuple[str, str], int] = {}
 
     async def _async_update_data(self) -> dict[str, BowlData]:
         """Poll every bowl, mapping vendor failures onto HA's error model."""
@@ -398,29 +405,28 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
                 LOGGER.debug("Skipping a device row with no deviceId")
                 continue
             previous = (self.data or {}).get(device_id)
-            config = BowlConfig.from_api(await self.client.device_config(device_id) or {})
+
+            # Every per-bowl read from here on is secondary. They are
+            # handed over as `partial`s, not coroutines, so a rested read
+            # creates nothing that would then have to be thrown away.
+            config = await self._async_config(device_id, previous)
 
             today_read = await self._async_secondary(
                 "today's drinking log",
                 device_id,
-                self._async_water_today(device_id, state.units, today),
+                partial(self._async_water_today, device_id, state.units, today),
             )
             water_today = None if isinstance(today_read, _Failed) else today_read
             history_read = await self._async_secondary(
                 "drinking history",
                 device_id,
-                self._async_history(device_id, state.units, row.get("createTime"), now),
+                partial(self._async_history, device_id, state.units, row.get("createTime"), now),
             )
             history = None if isinstance(history_read, _Failed) else history_read
             if history is not None:
                 self._observe_drink(history, today, water_today, now)
             notifications = await self._async_notifications(device_id, previous)
 
-            # The lifetime is unknown whenever either half of it is: the
-            # completed days (history) or today. A day the server has no
-            # row for is a known nothing and adds zero; a day that could
-            # not be READ is not, and a total published without it would
-            # dip by today's amount and read as a meter reset.
             if history is None or isinstance(today_read, _Failed):
                 water_total = None
             else:
@@ -444,16 +450,32 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
         self._warn_if_no_devices(data)
         return data
 
-    async def _async_notifications(self, device_id: str, previous: BowlData | None) -> list[dict[str, Any]]:
-        """Read the notify log, or reuse the last page while the read is rested.
+    async def _async_config(self, device_id: str, previous: BowlData | None) -> BowlConfig | None:
+        """Read the bowl's settings, or keep the last ones read while the read fails.
 
-        After a failed read the next `NOTIFY_LOG_RETRY_AFTER_POLLS` polls do
-        not ask again. Measured live, a failed read is a query the vendor's
-        server spent a full minute on before its gateway gave up; asking
-        every minute keeps one of those running on their side permanently,
-        and the answer, when it comes, is the same alerts as last time. A
-        read that succeeds puts the cadence straight back to every poll, so
-        a healthy vendor sees no change at all.
+        `device/config` used to be the one per-bowl read that could fail
+        the whole poll, and on 2026-10-24 it did. A second bowl on the
+        account had been unplugged for four days; the vendor answers a
+        settings read for an offline bowl with code 201 "The device is not
+        online." (after about 13 seconds); and that one refusal failed
+        every poll, so the bowl that WAS online never loaded either.
+
+        A failed read keeps the settings from the last poll that read them.
+        Settings change only when somebody edits them, so yesterday's
+        describe an unplugged bowl far better than nothing does, and the
+        setting entities stay available with them. A bowl whose settings
+        have NEVER been read gets `None`: those entities are unavailable
+        rather than showing zeros the vendor never sent, and a write is
+        refused, since every settings write replaces the whole object and
+        there is nothing honest to build one from.
+        """
+        read = await self._async_secondary("settings", device_id, partial(self.client.device_config, device_id))
+        if isinstance(read, _Failed):
+            return None if previous is None else previous.config
+        return BowlConfig.from_api(read or {})
+
+    async def _async_notifications(self, device_id: str, previous: BowlData | None) -> list[dict[str, Any]]:
+        """Read the notify log, or reuse the last page while the read fails or rests.
 
         Either way the bowl keeps the last page it saw rather than an empty
         one: the alert sensor would otherwise flip to unknown, and the event
@@ -461,33 +483,25 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
         again.
         """
         kept = previous.notifications if previous is not None else []
-        skip = self._notify_skip.get(device_id, 0)
-        if skip > 0:
-            self._notify_skip[device_id] = skip - 1
-            LOGGER.debug(
-                "Resting the notification log for %s this poll after a failed read (%s more to rest)",
-                device_label(device_id),
-                skip - 1,
-            )
-            return kept
-        read = await self._async_secondary("notification log", device_id, self.client.notify_log(device_id))
+        read = await self._async_secondary("notification log", device_id, partial(self.client.notify_log, device_id))
         if isinstance(read, _Failed):
-            self._notify_skip[device_id] = NOTIFY_LOG_RETRY_AFTER_POLLS
             return kept
         return self._notifications_for(device_id, (read or {}).get("data") or [])
 
-    async def _async_secondary[T](self, what: str, device_id: str, read: Awaitable[T]) -> T | _Failed:
-        """Await a secondary read, turning a transport failure into `FAILED`.
+    async def _async_secondary[T](
+        self, what: str, device_id: str, read: Callable[[], Awaitable[T]]
+    ) -> T | _Failed:
+        """Make one secondary read, turning a transport failure into `FAILED`.
 
         WHY THIS EXISTS: measured on a live install, the vendor's
         `notify/getNotifyLog` hung for 60-70 seconds roughly every other
         poll until their gateway answered with an HTML error page. Each
         time, every one of the bowl's thirty-odd entities went unavailable
         -- water today, online, filter life, all of it -- because of one
-        alert-log read that nothing else depends on. The device list and
-        the config are what the bowl's state is built from; the rest are
-        readings, and a reading the vendor could not supply this minute is
-        `unknown` for a minute, not an outage.
+        alert-log read that nothing else depends on. The device list is
+        what the poll is built from; everything per bowl is a reading, and
+        a reading the vendor could not supply this minute is `unknown` for
+        a minute, not an outage.
 
         WHAT STILL PROPAGATES, deliberately: a rejected session
         (`AlwaysFullAuthError`) must reach the re-login in
@@ -500,22 +514,46 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
         `FAILED`, which the caller maps onto whatever "not known this poll"
         means for that reading.
 
+        THE REST: after a failure, the next `SECONDARY_RETRY_AFTER_POLLS`
+        polls do not make this read for this bowl at all; they get `FAILED`
+        without a request. Measured live, a failed read is a query the
+        vendor's server spent a full minute on before its gateway gave up.
+        Asking again every poll keeps one of those running on their side
+        permanently, and with several readings per bowl failing together
+        (they share one backend) a one-minute poll becomes a four-minute
+        one. A read that succeeds puts its cadence straight back to every
+        poll, so a healthy vendor sees no change at all. Per bowl and per
+        reading: the online bowl is never rested for the offline bowl's
+        failures, and a failing alert log never rests the settings read.
+
         `device_id` is logged through `device_label`, never raw.
         """
+        key = (device_id, what)
+        rest = self._rest.get(key, 0)
+        if rest > 0:
+            self._rest[key] = rest - 1
+            LOGGER.debug(
+                "Resting the %s for %s this poll after a failed read (%s more to rest)",
+                what,
+                device_label(device_id),
+                rest - 1,
+            )
+            return FAILED
         try:
-            return await read
+            result = await read()
         except (AlwaysFullAuthError, AlwaysFullRateLimitError):
             raise
         except (TimeoutError, aiohttp.ClientError, ValueError, AlwaysFullError) as err:
+            self._rest[key] = SECONDARY_RETRY_AFTER_POLLS
             LOGGER.debug(
                 "Could not read the %s for %s this poll, keeping the rest of the bowl live: %s",
                 what,
                 device_label(device_id),
-                # `str(TimeoutError())` is the empty string, and a line
-                # ending in a bare colon says nothing about why.
                 str(err) or type(err).__name__,
             )
             return FAILED
+        self._rest.pop(key, None)
+        return result
 
     def _warn_if_no_devices(self, data: dict[str, BowlData]) -> None:
         """Say so when a SUCCESSFUL poll found no bowls at all.

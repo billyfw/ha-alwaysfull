@@ -97,7 +97,7 @@ from .entity import (
     FLUSH_GROUP,
     MAINTENANCE_GROUP,
     WATER_GROUP,
-    AlwaysFullWriteEntity,
+    AlwaysFullSettingEntity,
     ConfigGroup,
     async_add_bowl_entities,
 )
@@ -368,7 +368,7 @@ async def async_setup_entry(
     )
 
 
-class AlwaysFullNumber(AlwaysFullWriteEntity, NumberEntity):
+class AlwaysFullNumber(AlwaysFullSettingEntity, NumberEntity):
     """One numeric setting on one bowl."""
 
     entity_description: AlwaysFullNumberEntityDescription
@@ -404,10 +404,10 @@ class AlwaysFullNumber(AlwaysFullWriteEntity, NumberEntity):
     @property
     def native_value(self) -> float | None:
         """Return this setting's current value from the last poll."""
-        bowl = self.bowl
-        if bowl is None:
+        settings = self.settings
+        if settings is None:
             return None
-        return self.entity_description.value_fn(bowl.config)
+        return self.entity_description.value_fn(settings)
 
     async def async_set_native_value(self, value: float) -> None:
         """Send a new value, as the whole config group it belongs to.

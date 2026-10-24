@@ -25,9 +25,9 @@ from custom_components.alwaysfull.const import (
     EMPTY_DEVICE_LIST_EVERY_N_POLLS,
     HISTORY_CHUNK_DAYS,
     NOTIFY_CONFIG_EVERY_N_POLLS,
-    NOTIFY_LOG_RETRY_AFTER_POLLS,
     RELOGIN_MAX_ATTEMPTS,
     RELOGIN_WINDOW_SECONDS,
+    SECONDARY_RETRY_AFTER_POLLS,
 )
 from custom_components.alwaysfull.coordinator import (
     AlwaysFullCoordinator,
@@ -967,6 +967,13 @@ async def test_a_failed_history_window_is_resumed_not_repeated(
     assert coordinator.data[DEVICE_ID].water_total is None
     assert coordinator.data[DEVICE_ID].water_today == 903
 
+    # The failed read rests before it is asked again; the sum stays unknown
+    # meanwhile, and nothing already summed is lost.
+    for _ in range(SECONDARY_RETRY_AFTER_POLLS):
+        await coordinator.async_refresh()
+        assert coordinator.last_update_success is True
+        assert coordinator.data[DEVICE_ID].water_total is None
+
     await coordinator.async_refresh()
     assert coordinator.last_update_success is True
 
@@ -1127,6 +1134,12 @@ async def test_a_failed_todays_log_leaves_water_today_and_lifetime_unknown_only(
     assert bowl.state.is_online
     assert len(bowl.notifications) == 13
 
+    # Rested, then read again.
+    for _ in range(SECONDARY_RETRY_AFTER_POLLS):
+        freezer.tick(timedelta(minutes=1))
+        await coordinator.async_refresh()
+        assert coordinator.data[DEVICE_ID].water_today is None
+
     freezer.tick(timedelta(minutes=1))
     await coordinator.async_refresh()
     assert coordinator.data[DEVICE_ID].water_today == 903
@@ -1201,7 +1214,7 @@ async def test_a_failed_notify_log_is_rested_for_two_polls_then_retried(
     assert mock_api.notify_log_calls.count(DEVICE_ID) == 2
     assert coordinator.data[DEVICE_ID].notifications == before
 
-    for _ in range(NOTIFY_LOG_RETRY_AFTER_POLLS):
+    for _ in range(SECONDARY_RETRY_AFTER_POLLS):
         await coordinator.async_refresh()
         assert coordinator.last_update_success is True
         assert coordinator.data[DEVICE_ID].notifications == before
@@ -1215,3 +1228,103 @@ async def test_a_failed_notify_log_is_rested_for_two_polls_then_retried(
 
     # Per bowl: the other bowl was never rested.
     assert mock_api.notify_log_calls.count(SECOND_DEVICE_ID) == 6
+
+
+async def test_an_offline_bowls_refused_settings_read_does_not_take_the_online_bowl_down(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """Live on 2026-10-24: one bowl unplugged for four days, and the account never loaded.
+
+    The vendor answers `device/config` for an offline bowl with code 201
+    "The device is not online." That one refusal failed every poll, so the
+    bowl that WAS online -- registered that morning -- never got its
+    entities. The offline bowl's settings are simply unknown now, and the
+    rest of it, and the other bowl, load.
+    """
+    mock_api.fail_device_config(
+        AlwaysFullError("The device is not online.", code="201"), device_id=SECOND_DEVICE_ID
+    )
+    coordinator = await _setup_frozen(hass, freezer)
+
+    assert coordinator.last_update_success is True
+    online = coordinator.data[DEVICE_ID]
+    assert online.config is not None
+    assert online.config.device_id == DEVICE_ID
+    assert online.water_today == 903
+    offline = coordinator.data[SECOND_DEVICE_ID]
+    assert offline.config is None
+    # Its other readings come from endpoints that still answer.
+    assert offline.state.device_id == SECOND_DEVICE_ID
+    assert offline.water_today == 250
+
+
+async def test_a_failed_settings_read_keeps_the_settings_last_read(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """Settings change only when somebody edits them; the last read stands in through a failure."""
+    coordinator = await _setup_frozen(hass, freezer)
+    before = coordinator.data[DEVICE_ID].config
+    assert before is not None
+
+    mock_api.fail_device_config(TimeoutError(), times=1, device_id=DEVICE_ID)
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    bowl = coordinator.data[DEVICE_ID]
+    assert bowl.config == before
+    assert bowl.water_today == 903
+    assert bowl.state.is_online
+
+
+async def test_every_secondary_read_rests_after_a_failure_then_asks_again(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """The vendor's endpoints fail one at a time or together; the rest is per reading, per bowl.
+
+    After a failure the next `SECONDARY_RETRY_AFTER_POLLS` polls make no
+    request for that reading of that bowl; the one after asks again, and a
+    success restores the every-poll cadence. The readings that did not fail,
+    and the other bowl's, are never rested.
+    """
+    coordinator = await _setup_frozen(hass, freezer)
+
+    def config_calls(device_id: str) -> int:
+        return mock_api.device_config_calls.count(device_id)
+
+    def today_calls(device_id: str) -> int:
+        return sum(1 for call in mock_api.drinking_log_calls if call[0] == device_id and call[2] == call[3])
+
+    config_before, today_before = config_calls(DEVICE_ID), today_calls(DEVICE_ID)
+    other_config_before = config_calls(SECOND_DEVICE_ID)
+    notify_before = mock_api.notify_log_calls.count(DEVICE_ID)
+
+    mock_api.fail_device_config(TimeoutError(), times=1, device_id=DEVICE_ID)
+    mock_api.fail_drinking_log(TimeoutError(), times=1)
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    # The failed attempts themselves were made.
+    assert config_calls(DEVICE_ID) == config_before + 1
+    assert today_calls(DEVICE_ID) == today_before + 1
+    assert coordinator.data[DEVICE_ID].water_today is None
+
+    for _ in range(SECONDARY_RETRY_AFTER_POLLS):
+        freezer.tick(timedelta(minutes=1))
+        await coordinator.async_refresh()
+        assert coordinator.last_update_success is True
+        assert coordinator.data[DEVICE_ID].water_today is None
+        assert coordinator.data[DEVICE_ID].config is not None
+    # Rested: not one more request for either reading ...
+    assert config_calls(DEVICE_ID) == config_before + 1
+    assert today_calls(DEVICE_ID) == today_before + 1
+    # ... while the alert log, which did not fail, was read on every poll,
+    # and so were the other bowl's settings.
+    assert mock_api.notify_log_calls.count(DEVICE_ID) == notify_before + 1 + SECONDARY_RETRY_AFTER_POLLS
+    assert config_calls(SECOND_DEVICE_ID) == other_config_before + 1 + SECONDARY_RETRY_AFTER_POLLS
+
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+    assert config_calls(DEVICE_ID) == config_before + 2
+    assert today_calls(DEVICE_ID) == today_before + 2
+    assert coordinator.data[DEVICE_ID].water_today == 903

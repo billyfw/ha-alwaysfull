@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from homeassistant.components.time import TimeEntity, TimeEntityDescription
 
-from .entity import SLEEP_GROUP, AlwaysFullWriteEntity, async_add_bowl_entities
+from .entity import SLEEP_GROUP, AlwaysFullSettingEntity, async_add_bowl_entities
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -83,7 +83,7 @@ async def async_setup_entry(
     )
 
 
-class AlwaysFullTime(AlwaysFullWriteEntity, TimeEntity):
+class AlwaysFullTime(AlwaysFullSettingEntity, TimeEntity):
     """One end of one bowl's sleep window."""
 
     entity_description: AlwaysFullTimeEntityDescription
@@ -91,10 +91,10 @@ class AlwaysFullTime(AlwaysFullWriteEntity, TimeEntity):
     @property
     def native_value(self) -> time | None:
         """Return this end of the window, from the last poll."""
-        bowl = self.bowl
-        if bowl is None:
+        settings = self.settings
+        if settings is None:
             return None
-        return self.entity_description.value_fn(bowl.config)
+        return self.entity_description.value_fn(settings)
 
     async def async_set_value(self, value: time) -> None:
         """Move this end of the window, sending the sleep group entire."""

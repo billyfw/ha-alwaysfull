@@ -25,6 +25,7 @@ from pytest_homeassistant_custom_component.components.diagnostics import (
 )
 
 from custom_components.alwaysfull.const import DOMAIN
+from custom_components.alwaysfull.exceptions import AlwaysFullError
 
 from .conftest import DEVICE_ID, SECOND_DEVICE_ID, load_fixture_data
 
@@ -280,3 +281,20 @@ async def test_diagnostics_redact_account_holder_fields_we_do_not_yet_fetch(
     assert diagnostics["notify_config"]["subscribe"] == 1
     assert diagnostics["notify_config"]["subscribeExpires"] == "2027-01-01 00:00:00"
     assert diagnostics["devices"][0]["raw"]["subscribe"] == 1
+
+
+async def test_diagnostics_report_settings_never_read_as_null(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    mock_api: FakeAlwaysFullClient,
+) -> None:
+    """An offline bowl's settings are `null`, not a dict of zeros, and the other bowl's are real."""
+    mock_api.fail_device_config(
+        AlwaysFullError("The device is not online.", code="201"), device_id=SECOND_DEVICE_ID
+    )
+    entry = await _load_entry(hass)
+    diagnostics: Any = await get_diagnostics_for_config_entry(hass, hass_client, entry)
+
+    configs = [bowl["config"] for bowl in diagnostics["devices"]]
+    assert sorted(config is None for config in configs) == [False, True]
+    assert next(config for config in configs if config is not None)["clean_cycle_seconds"] == 3600

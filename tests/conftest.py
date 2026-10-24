@@ -233,6 +233,9 @@ class FakeAlwaysFullClient:
         self.notify_log_error_remaining: int | None = None
         self.drinking_log_error: Exception | None = None
         self.drinking_log_error_remaining: int | None = None
+        self.device_config_error: Exception | None = None
+        self.device_config_error_remaining: int | None = None
+        self.device_config_error_device: str | None = None
         self.login_error: Exception | None = None
         self.write_error: Exception | None = None
         self.write_error_remaining: int | None = None
@@ -274,6 +277,19 @@ class FakeAlwaysFullClient:
         """Make `notify_log()` raise `error`, for `times` calls (None = forever)."""
         self.notify_log_error = error
         self.notify_log_error_remaining = times
+
+    def fail_device_config(
+        self, error: Exception, times: int | None = None, *, device_id: str | None = None
+    ) -> None:
+        """Make `device_config()` raise `error`, for `times` calls (None = forever).
+
+        With `device_id`, only that bowl's read fails -- the live shape of
+        the failure, where one offline bowl on the account answers 201 and
+        the other keeps answering.
+        """
+        self.device_config_error = error
+        self.device_config_error_remaining = times
+        self.device_config_error_device = device_id
 
     def fail_drinking_log(self, error: Exception, times: int | None = None) -> None:
         """Make `drinking_log()` raise `error`, for `times` calls (None = forever)."""
@@ -332,6 +348,14 @@ class FakeAlwaysFullClient:
         bowl was given ITS OWN config, not another bowl's.
         """
         self.device_config_calls.append(device_id)
+        if (
+            self.device_config_error is not None
+            and self.device_config_error_remaining != 0
+            and self.device_config_error_device in (None, device_id)
+        ):
+            if self.device_config_error_remaining is not None:
+                self.device_config_error_remaining -= 1
+            raise self.device_config_error
         config = copy.deepcopy(self.device_config_override or load_fixture_data("device_config"))
         config["devNo"] = device_id
         return config
