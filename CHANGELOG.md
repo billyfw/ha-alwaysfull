@@ -4,6 +4,22 @@ Release notes, newest first. Releases before 0.4.0 predate this file; their
 changes are in the commit history, one `build: ship as <version>` commit per
 release.
 
+## 0.5.4
+
+### One failed poll no longer takes every entity unavailable
+
+The vendor answers the odd poll with `603` "too many requests" (twice on
+2026-10-24 with nothing else signed in) or lets a `device/list` time out, and
+Home Assistant's default, unavailable the moment one update fails, turned each
+of those into every entity on every bowl going unavailable for a poll: a blank
+dashboard, a spike in the history, nothing to act on. The entities now stay
+available with the last data for `AVAILABILITY_GRACE_SECONDS` (five minutes,
+five polls at the default interval) after the last successful poll; a real
+outage still shows as unavailable within five minutes, through a timer that
+fires when the grace runs out, and the **Last poll** sensor says how old the
+readings are meanwhile. A restart starts with no grace: nothing is reported
+that has not been read.
+
 ## 0.5.3
 
 ### A stalled log backend no longer blanks the day's reading, and three read clocks say how old things are
