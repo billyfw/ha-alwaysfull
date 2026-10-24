@@ -177,6 +177,19 @@ class BowlData:
     # registration date is unknown and there is no lifetime to sum over.
     water_total: int | None = None
     last_drink: datetime | None = None
+    # When the poll that built this record got its answer: every entity on
+    # the bowl was written then, so it is the bowl's "last poll" clock.
+    polled_at: datetime | None = None
+    # When today's drinking log was last READ successfully, and the local day
+    # that read was for. A read that fails or rests carries the same day's
+    # reading forward (the vendor's own last answer, with this stamp saying
+    # how old it is) instead of flipping the sensor to unknown every time
+    # their log backend stalls; a new day starts from nothing.
+    water_today_read_at: datetime | None = None
+    water_today_date: str | None = None
+    # When the alert log was last read successfully. The page itself is
+    # carried through a failed read already; this says how old it is.
+    alerts_read_at: datetime | None = None
 
     @property
     def firmware_version(self) -> str | None:
@@ -447,7 +460,21 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
                 device_id,
                 partial(self._async_water_today, device_id, state.units, today),
             )
-            water_today = None if isinstance(today_read, _Failed) else today_read
+            if not isinstance(today_read, _Failed):
+                water_today = today_read
+                water_today_read_at = now
+                water_today_date = today
+            elif previous is not None and previous.water_today_date == today:
+                # Carry the same local day's last answer, stamp included.
+                water_today = previous.water_today
+                water_today_read_at = previous.water_today_read_at
+                water_today_date = today
+            else:
+                # Nothing read today: a reading from before midnight is not today's.
+                water_today = None
+                water_today_read_at = None
+                water_today_date = None
+            today_known = water_today_date is not None
             history_read = await self._async_secondary(
                 "drinking history",
                 device_id,
@@ -456,12 +483,9 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
             history = None if isinstance(history_read, _Failed) else history_read
             if history is not None:
                 self._observe_drink(history, today, water_today, now)
-            notifications = await self._async_notifications(device_id, previous)
+            notifications, alerts_read_at = await self._async_notifications(device_id, previous, now)
 
-            if history is None or isinstance(today_read, _Failed):
-                water_total = None
-            else:
-                water_total = history.total + (water_today or 0)
+            water_total = None if history is None or not today_known else history.total + (water_today or 0)
 
             data[device_id] = BowlData(
                 device_id=device_id,
@@ -472,6 +496,10 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
                 raw=row,
                 water_total=water_total,
                 last_drink=None if history is None else history.last_drink,
+                polled_at=now,
+                water_today_read_at=water_today_read_at,
+                water_today_date=water_today_date,
+                alerts_read_at=alerts_read_at,
             )
 
         if self._poll_count % NOTIFY_CONFIG_EVERY_N_POLLS == 0:
@@ -505,19 +533,22 @@ class AlwaysFullCoordinator(DataUpdateCoordinator[dict[str, BowlData]]):
             return None if previous is None else previous.config
         return BowlConfig.from_api(read or {})
 
-    async def _async_notifications(self, device_id: str, previous: BowlData | None) -> list[dict[str, Any]]:
+    async def _async_notifications(
+        self, device_id: str, previous: BowlData | None, now: datetime
+    ) -> tuple[list[dict[str, Any]], datetime | None]:
         """Read the notify log, or reuse the last page while the read fails or rests.
 
         Either way the bowl keeps the last page it saw rather than an empty
         one: the alert sensor would otherwise flip to unknown, and the event
         entity would re-fire every row on the page once the read works
-        again.
+        again. The second value is when the page was last read for real.
         """
         kept = previous.notifications if previous is not None else []
+        kept_at = previous.alerts_read_at if previous is not None else None
         read = await self._async_secondary("notification log", device_id, partial(self.client.notify_log, device_id))
         if isinstance(read, _Failed):
-            return kept
-        return self._notifications_for(device_id, (read or {}).get("data") or [])
+            return kept, kept_at
+        return self._notifications_for(device_id, (read or {}).get("data") or []), now
 
     async def _async_secondary[T](
         self, what: str, device_id: str, read: Callable[[], Awaitable[T]]

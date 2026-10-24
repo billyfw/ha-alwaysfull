@@ -1,4 +1,55 @@
 # serializer version: 1
+# name: test_all_sensor_entities[sensor.second_bowl_alert_log_last_read-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.second_bowl_alert_log_last_read',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Alert log last read',
+    'options': dict({
+    }),
+    'original_device_class': <SensorDeviceClass.TIMESTAMP: 'timestamp'>,
+    'original_icon': None,
+    'original_name': 'Alert log last read',
+    'platform': 'alwaysfull',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'alerts_read_at',
+    'unique_id': '001122334455_alerts_read_at',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_sensor_entities[sensor.second_bowl_alert_log_last_read-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Second Bowl Alert log last read',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.second_bowl_alert_log_last_read',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '2026-09-16T18:00:00+00:00',
+  })
+# ---
 # name: test_all_sensor_entities[sensor.second_bowl_filter_life-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
@@ -399,6 +450,57 @@
     'state': 'unknown',
   })
 # ---
+# name: test_all_sensor_entities[sensor.second_bowl_last_poll-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.second_bowl_last_poll',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Last poll',
+    'options': dict({
+    }),
+    'original_device_class': <SensorDeviceClass.TIMESTAMP: 'timestamp'>,
+    'original_icon': None,
+    'original_name': 'Last poll',
+    'platform': 'alwaysfull',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'polled_at',
+    'unique_id': '001122334455_polled_at',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_sensor_entities[sensor.second_bowl_last_poll-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Second Bowl Last poll',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.second_bowl_last_poll',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '2026-09-16T18:00:00+00:00',
+  })
+# ---
 # name: test_all_sensor_entities[sensor.second_bowl_last_refill-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
@@ -572,6 +674,57 @@
     'state': '14786.76478125',
   })
 # ---
+# name: test_all_sensor_entities[sensor.second_bowl_water_log_last_read-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.second_bowl_water_log_last_read',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Water log last read',
+    'options': dict({
+    }),
+    'original_device_class': <SensorDeviceClass.TIMESTAMP: 'timestamp'>,
+    'original_icon': None,
+    'original_name': 'Water log last read',
+    'platform': 'alwaysfull',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'water_today_read_at',
+    'unique_id': '001122334455_water_today_read_at',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_sensor_entities[sensor.second_bowl_water_log_last_read-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Second Bowl Water log last read',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.second_bowl_water_log_last_read',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '2026-09-16T18:00:00+00:00',
+  })
+# ---
 # name: test_all_sensor_entities[sensor.second_bowl_water_source-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
@@ -696,6 +849,57 @@
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': '7393.382390625',
+  })
+# ---
+# name: test_all_sensor_entities[sensor.test_bowl_alert_log_last_read-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.test_bowl_alert_log_last_read',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Alert log last read',
+    'options': dict({
+    }),
+    'original_device_class': <SensorDeviceClass.TIMESTAMP: 'timestamp'>,
+    'original_icon': None,
+    'original_name': 'Alert log last read',
+    'platform': 'alwaysfull',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'alerts_read_at',
+    'unique_id': 'aabbccddeeff_alerts_read_at',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_sensor_entities[sensor.test_bowl_alert_log_last_read-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Bowl Alert log last read',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_bowl_alert_log_last_read',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '2026-09-16T18:00:00+00:00',
   })
 # ---
 # name: test_all_sensor_entities[sensor.test_bowl_filter_life-entry]
@@ -1098,6 +1302,57 @@
     'state': 'unknown',
   })
 # ---
+# name: test_all_sensor_entities[sensor.test_bowl_last_poll-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.test_bowl_last_poll',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Last poll',
+    'options': dict({
+    }),
+    'original_device_class': <SensorDeviceClass.TIMESTAMP: 'timestamp'>,
+    'original_icon': None,
+    'original_name': 'Last poll',
+    'platform': 'alwaysfull',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'polled_at',
+    'unique_id': 'aabbccddeeff_polled_at',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_sensor_entities[sensor.test_bowl_last_poll-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Bowl Last poll',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_bowl_last_poll',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '2026-09-16T18:00:00+00:00',
+  })
+# ---
 # name: test_all_sensor_entities[sensor.test_bowl_last_refill-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
@@ -1266,6 +1521,57 @@
     'last_reported': <ANY>,
     'last_updated': <ANY>,
     'state': '1806',
+  })
+# ---
+# name: test_all_sensor_entities[sensor.test_bowl_water_log_last_read-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': <EntityCategory.DIAGNOSTIC: 'diagnostic'>,
+    'entity_id': 'sensor.test_bowl_water_log_last_read',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Water log last read',
+    'options': dict({
+    }),
+    'original_device_class': <SensorDeviceClass.TIMESTAMP: 'timestamp'>,
+    'original_icon': None,
+    'original_name': 'Water log last read',
+    'platform': 'alwaysfull',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'water_today_read_at',
+    'unique_id': 'aabbccddeeff_water_today_read_at',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_all_sensor_entities[sensor.test_bowl_water_log_last_read-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      <EntityStateAttribute.DEVICE_CLASS: 'device_class'>: 'timestamp',
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Test Bowl Water log last read',
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.test_bowl_water_log_last_read',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': '2026-09-16T18:00:00+00:00',
   })
 # ---
 # name: test_all_sensor_entities[sensor.test_bowl_water_source-entry]

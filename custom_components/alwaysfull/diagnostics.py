@@ -108,6 +108,9 @@ def _bowl_diagnostics(bowl: BowlData) -> dict[str, Any]:
         "water_today": bowl.water_today,
         "water_total": bowl.water_total,
         "last_drink": bowl.last_drink,
+        "polled_at": bowl.polled_at,
+        "water_today_read_at": bowl.water_today_read_at,
+        "alerts_read_at": bowl.alerts_read_at,
         # The vendor's untouched device row. Its redacted fields are
         # already covered; what is left is the firmware version, the
         # timestamps and any field the vendor has added since this

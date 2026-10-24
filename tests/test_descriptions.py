@@ -126,6 +126,9 @@ EXPECTED_CATEGORIES = {
     "device_used_time": EntityCategory.DIAGNOSTIC,
     "online_time": EntityCategory.DIAGNOSTIC,
     "offline_time": EntityCategory.DIAGNOSTIC,
+    "polled_at": EntityCategory.DIAGNOSTIC,
+    "water_today_read_at": EntityCategory.DIAGNOSTIC,
+    "alerts_read_at": EntityCategory.DIAGNOSTIC,
     "firmware": EntityCategory.DIAGNOSTIC,
 }
 # The alert event is the headline feature of this integration; burying it

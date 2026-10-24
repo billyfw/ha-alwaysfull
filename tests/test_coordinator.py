@@ -1117,12 +1117,22 @@ async def test_a_failed_notify_log_on_the_first_poll_means_no_alerts_yet(
     assert coordinator.data[DEVICE_ID].water_today == 903
 
 
-async def test_a_failed_todays_log_leaves_water_today_and_lifetime_unknown_only(
+async def test_a_failed_todays_log_keeps_the_days_last_reading_and_its_read_time(
     hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
 ) -> None:
-    """Today's reading is unknown for one poll; the lifetime with it; nothing else moves."""
+    """The vendor's log backend stalls for hours; the reading it last gave stands, visibly aged.
+
+    Water today and the lifetime keep the morning's values through the failed
+    read and the rests that follow; the read stamp stays at the last success,
+    which is how a page says "0 fl oz, read at 08:47" instead of flipping to
+    unknown every third poll. The poll stamp keeps moving.
+    """
     coordinator = await _setup_frozen(hass, freezer)
-    assert coordinator.data[DEVICE_ID].water_total == 903 + 903
+    bowl = coordinator.data[DEVICE_ID]
+    assert bowl.water_total == 903 + 903
+    read_at = bowl.water_today_read_at
+    assert read_at == dt_util.utcnow()
+    assert bowl.polled_at == dt_util.utcnow()
 
     mock_api.fail_drinking_log(aiohttp.ClientError("boom"), times=2)
     freezer.tick(timedelta(minutes=1))
@@ -1130,8 +1140,10 @@ async def test_a_failed_todays_log_leaves_water_today_and_lifetime_unknown_only(
 
     assert coordinator.last_update_success is True
     bowl = coordinator.data[DEVICE_ID]
-    assert bowl.water_today is None
-    assert bowl.water_total is None
+    assert bowl.water_today == 903
+    assert bowl.water_total == 903 + 903
+    assert bowl.water_today_read_at == read_at
+    assert bowl.polled_at == dt_util.utcnow()
     assert bowl.state.is_online
     assert len(bowl.notifications) == 13
 
@@ -1139,14 +1151,34 @@ async def test_a_failed_todays_log_leaves_water_today_and_lifetime_unknown_only(
     for _ in range(SECONDARY_RETRY_AFTER_POLLS):
         freezer.tick(timedelta(minutes=1))
         await coordinator.async_refresh()
-        assert coordinator.data[DEVICE_ID].water_today is None
+        assert coordinator.data[DEVICE_ID].water_today == 903
+        assert coordinator.data[DEVICE_ID].water_today_read_at == read_at
 
     freezer.tick(timedelta(minutes=1))
     await coordinator.async_refresh()
     assert coordinator.data[DEVICE_ID].water_today == 903
+    assert coordinator.data[DEVICE_ID].water_today_read_at == dt_util.utcnow()
     assert coordinator.data[DEVICE_ID].water_total == 903 + 903
-    # A failed read is not a rise from nothing.
+    # A carried reading is not a rise from nothing.
     assert coordinator.data[DEVICE_ID].last_drink is None
+
+
+async def test_a_failed_todays_log_on_a_new_day_carries_nothing(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    """Yesterday's reading is not today's: after midnight a failed read is unknown."""
+    coordinator = await _setup_frozen(hass, freezer)
+    assert coordinator.data[DEVICE_ID].water_today == 903
+
+    mock_api.fail_drinking_log(TimeoutError(), times=1)
+    freezer.tick(timedelta(days=1))
+    await coordinator.async_refresh()
+
+    bowl = coordinator.data[DEVICE_ID]
+    assert bowl.water_today is None
+    assert bowl.water_today_read_at is None
+    assert bowl.water_total is None
+    assert bowl.polled_at == dt_util.utcnow()
 
 
 async def test_a_missing_row_still_counts_toward_the_lifetime_but_a_failed_read_does_not(
@@ -1160,12 +1192,14 @@ async def test_a_missing_row_still_counts_toward_the_lifetime_but_a_failed_read_
     assert coordinator.data[DEVICE_ID].water_today is None
     assert coordinator.data[DEVICE_ID].water_total == 903
 
+    # "No row today" was the vendor's answer a minute ago, so a failed read
+    # carries it the same way it carries a number: the lifetime still counts.
     mock_api.drinking_rows_override = None
     mock_api.fail_drinking_log(TimeoutError(), times=2)
     freezer.tick(timedelta(minutes=1))
     await coordinator.async_refresh()
     assert coordinator.data[DEVICE_ID].water_today is None
-    assert coordinator.data[DEVICE_ID].water_total is None
+    assert coordinator.data[DEVICE_ID].water_total == 903
 
 
 async def test_a_rejected_session_on_a_secondary_read_still_triggers_the_relogin(
@@ -1300,21 +1334,23 @@ async def test_every_secondary_read_rests_after_a_failure_then_asks_again(
     other_config_before = config_calls(SECOND_DEVICE_ID)
     notify_before = mock_api.notify_log_calls.count(DEVICE_ID)
 
+    read_at = coordinator.data[DEVICE_ID].water_today_read_at
     mock_api.fail_device_config(TimeoutError(), times=1, device_id=DEVICE_ID)
     mock_api.fail_drinking_log(TimeoutError(), times=1)
     freezer.tick(timedelta(minutes=1))
     await coordinator.async_refresh()
     assert coordinator.last_update_success is True
-    # The failed attempts themselves were made.
+    # The failed attempts themselves were made; the reading is carried, its stamp is not.
     assert config_calls(DEVICE_ID) == config_before + 1
     assert today_calls(DEVICE_ID) == today_before + 1
-    assert coordinator.data[DEVICE_ID].water_today is None
+    assert coordinator.data[DEVICE_ID].water_today == 903
+    assert coordinator.data[DEVICE_ID].water_today_read_at == read_at
 
     for _ in range(SECONDARY_RETRY_AFTER_POLLS):
         freezer.tick(timedelta(minutes=1))
         await coordinator.async_refresh()
         assert coordinator.last_update_success is True
-        assert coordinator.data[DEVICE_ID].water_today is None
+        assert coordinator.data[DEVICE_ID].water_today_read_at == read_at
         assert coordinator.data[DEVICE_ID].config is not None
     # Rested: not one more request for either reading ...
     assert config_calls(DEVICE_ID) == config_before + 1
@@ -1329,6 +1365,27 @@ async def test_every_secondary_read_rests_after_a_failure_then_asks_again(
     assert config_calls(DEVICE_ID) == config_before + 2
     assert today_calls(DEVICE_ID) == today_before + 2
     assert coordinator.data[DEVICE_ID].water_today == 903
+    assert coordinator.data[DEVICE_ID].water_today_read_at == dt_util.utcnow()
+
+
+async def test_the_alert_log_read_time_moves_only_when_the_read_succeeds(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient, freezer: FrozenDateTimeFactory
+) -> None:
+    coordinator = await _setup_frozen(hass, freezer)
+    read_at = coordinator.data[DEVICE_ID].alerts_read_at
+    assert read_at == dt_util.utcnow()
+
+    mock_api.fail_notify_log(TimeoutError(), times=1)
+    freezer.tick(timedelta(minutes=1))
+    await coordinator.async_refresh()
+    assert len(coordinator.data[DEVICE_ID].notifications) == 13
+    assert coordinator.data[DEVICE_ID].alerts_read_at == read_at
+    assert coordinator.data[DEVICE_ID].polled_at == dt_util.utcnow()
+
+    for _ in range(SECONDARY_RETRY_AFTER_POLLS + 1):
+        freezer.tick(timedelta(minutes=1))
+        await coordinator.async_refresh()
+    assert coordinator.data[DEVICE_ID].alerts_read_at == dt_util.utcnow()
 
 
 async def _setup_leaving_out(

@@ -208,6 +208,15 @@
       },
       "water_total": {
         "name": "Water lifetime"
+      },
+      "polled_at": {
+        "name": "Last poll"
+      },
+      "water_today_read_at": {
+        "name": "Water log last read"
+      },
+      "alerts_read_at": {
+        "name": "Alert log last read"
       }
     },
     "switch": {

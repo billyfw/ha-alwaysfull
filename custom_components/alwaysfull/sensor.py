@@ -406,6 +406,32 @@ SENSORS: tuple[AlwaysFullSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda bowl: parse_device_timestamp(bowl.state.offline_time),
     ),
+    # The three read clocks, so a dashboard or an automation can tell "the
+    # vendor's log backend has not answered for two hours" from "the bowl is
+    # fine": the poll stamp moves every poll, the two log stamps only when
+    # that read succeeds. They are diagnostics, and they are the honest way
+    # to show a reading's age now that a failed log read keeps the last one.
+    AlwaysFullSensorEntityDescription(
+        key="polled_at",
+        translation_key="polled_at",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda bowl: bowl.polled_at,
+    ),
+    AlwaysFullSensorEntityDescription(
+        key="water_today_read_at",
+        translation_key="water_today_read_at",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda bowl: bowl.water_today_read_at,
+    ),
+    AlwaysFullSensorEntityDescription(
+        key="alerts_read_at",
+        translation_key="alerts_read_at",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda bowl: bowl.alerts_read_at,
+    ),
     AlwaysFullSensorEntityDescription(
         key="firmware",
         translation_key="firmware",
