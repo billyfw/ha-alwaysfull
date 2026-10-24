@@ -45,11 +45,20 @@ Read `docs/VENDOR-API.md` sections 1.4, 1.5 and 12 before touching the API clien
 - [x] 2026-10-24: upstream 0.4.0 installed on ha-lau through HACS (entry `01M5QEPQCK3VDJ32A78HE2NM06`,
       title = the owner's address, created 07:18 HST); never loaded (above).
 - [x] 2026-10-24: fork created, 0.5.0 built and tested on dev.
-- [ ] Switch the box to the fork (HACS: remove the `rancur/ha-alwaysfull` record, add
-      `billyfw/ha-alwaysfull` as a custom repository, download v0.5.0) and restart HA: **the owner's go.**
-- [ ] First load: both bowls as devices, the house bowl's entities populated, the other house bowl's
-      settings entities unavailable while it is offline; record the entity ids in ha-lau-config
-      `docs/devices/water-bowl.md` and the registry manifest.
+- [x] 2026-10-24 08:19 HST: HACS switched to the fork (`scripts/hacs.py switch`), HA restarted on
+      the owner's go, **0.5.0 live**: the entry loaded on the first try (RUNNING 08:23:39; the first poll held
+      HA's startup for about three minutes because every secondary read of both bowls timed out against
+      the wedged vendor), three devices (bowl1 36 entities, the other house Water Bowl 36, the account 12),
+      bowl1 online with its settings, water today and the alerts unknown while the vendor's log
+      endpoints 504, the other house bowl's setting controls unavailable. The rests work (debug log: a
+      rested poll takes 2.5 s, an attempt poll about 20 s). The box's autocommit recorded it in
+      ha-lau-config (`HACS: Always Full removed`, `HACS: Always Full 0.5.0 (new)`).
+- [x] 2026-10-24 08:40 HST: **0.5.1 (bowls to leave out) released and downloaded to the box**; HA still
+      runs 0.5.0 in memory until the next restart.
+- [ ] Restart HA (**the owner's go**), then save the option leaving out the other house bowl (the Configure
+      dialog, or the options flow over REST); saving reloads the entry and removes that device and its
+      36 entities. Record the house entity ids in ha-lau-config `docs/devices/water-bowl.md` and the
+      registry manifest.
 - [ ] Then, designed with the owner: a `packages/water_bowl.yaml` in ha-lau-config (alert pushes
       through `script.lau_notify_household`, a syshealth heartbeat like halo's).
 
@@ -67,7 +76,16 @@ Read `docs/VENDOR-API.md` sections 1.4, 1.5 and 12 before touching the API clien
   objects and their app shortens the filter life on a no-op save (README, "Beyond what the app
   exposes"). Writes happen only when the owner asks for that change then.
 - **HACS points at this fork, never at `rancur/ha-alwaysfull`**; a redownload from upstream's record
-  would put 0.4.0 back and the entry would stop loading again.
+  would put 0.4.0 back and the entry would stop loading again. Upstream's record still appears in
+  HACS's list, uninstalled; leave it, or remove it in the HACS UI.
+- **This repository is public. Nothing identifying in it, in any commit**: no raw device id (the
+  vendor's `deviceId` is the bowl's MAC; write the integration's own label, `bowl-xxxxxxxx` from
+  `device_label()`), no email address, no street address, no token. `scripts/check_no_pii.py` scans the
+  working tree AND the whole history and is a CI gate upstream; a finding in history means a rewrite and
+  a force-push (done once, 2026-10-24, for two device ids this file carried for twenty minutes). The one
+  finding left is the commit author address (the owner's gmail, his global git identity): switching this
+  clone to a GitHub noreply address and rewriting is his call. The raw ids live in ha-lau-config
+  `docs/devices/water-bowl.md` (private).
 - Poll interval stays at the 60 s default (the vendor's app polls every 3 s while open); the
   re-login budget (3 per 5 min) and the rests are the protection against the vendor's `603` rate
   limit. Do not loosen either without re-reading VENDOR-API 1.4 and 12.
@@ -79,10 +97,13 @@ Read `docs/VENDOR-API.md` sections 1.4, 1.5 and 12 before touching the API clien
 | bowl1 | `bowl-e43a3d86` | 2026-10-24 17:10 UTC | the house | wall unit (`slaveType` 2), firmware 3.6.2, units 2 |
 | the other house Water Bowl | `bowl-ce468908` | 2026-08-02 | the other house | same model; offline since 2026-10-20 14:41 UTC when checked |
 
-Both appear as devices on ha-lau. The vendor's `deviceId` is the bowl's MAC; the integration logs it
-only through `device_label()` (a hash). the other house's HA has no view of its bowl yet: a second poller on
-the same account is ruled out, so the options are a second Always Full account for that bowl (if the
-vendor can move a bowl between accounts), or ha-lau forwarding its states to ha-config. the owner's call.
+The table shows the integration's labels (`device_label()`, a hash of the vendor id), the same ones the
+log and the diagnostics use; the raw ids are in ha-lau-config `docs/devices/water-bowl.md`. Both bowls
+appeared as devices on ha-lau at the 0.5.0 load; the owner does not want the other house bowl there, so from
+0.5.1 it is left out through the options (no device, no requests). the other house's HA has no view of its bowl:
+a second poller on the same account is ruled out, so the options are a second Always Full account for
+that bowl (if the vendor can move a bowl between accounts), or ha-lau forwarding its states to
+ha-config. the owner's call.
 
 ## Deploy (ha-lau, through HACS from this fork)
 
@@ -100,6 +121,10 @@ vendor can move a bowl between accounts), or ha-lau forwarding its states to ha-
 4. **Restart HA with the owner's go** (new Python needs a restart; a reload of the entry keeps the old
    modules). The box's git autocommit then commits `custom_components/alwaysfull` into ha-lau-config
    as `HACS: Always Full <old> -> <new>`; `git -C ~/devprojects/ha-lau-config pull` afterwards.
+   HACS's first download attempt logs `Download failed - 400 ... Got more than 8190 bytes when reading`
+   and `Failed to download zipball` (GitHub's redirect headers overflow aiohttp's line limit); HACS
+   falls back to another route on its own and the files land. Seen on both installs on 2026-10-24;
+   check the manifest on the box rather than the log.
 5. Post-restart checks: the entry `loaded` (`GET /api/config/config_entries/entry?domain=alwaysfull`),
    the two devices, the house bowl's `sensor.*water_today*` with a number, nothing from
    `custom_components.alwaysfull` above DEBUG in `GET /api/hassio/core/logs` (the box has no
