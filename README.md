@@ -504,7 +504,9 @@ before changing a threshold, or set the threshold again afterwards.
 entity records everything already on the vendor's page without firing it. The
 alternative is worse: a restart would replay up to twenty alerts at once, at
 whatever hour you restarted. Those alerts are still visible on the **Last
-alert** sensor and in the vendor's app.
+alert** sensor and in the vendor's app. The ids already fired are also kept
+across the restart, so when the vendor's alert log is not answering at startup,
+its first answer afterwards fires only the alerts that are new.
 
 **An alert with no id is skipped.** Deduplication is keyed on the row id the
 vendor assigns. A row without one cannot be deduplicated, and firing it would

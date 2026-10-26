@@ -47,9 +47,10 @@ bowl whenever two alerts shared a `createTime` second -- see
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.event import EventEntity, EventEntityDescription
+from homeassistant.components.event import EventEntity, EventEntityDescription, EventExtraStoredData
 from homeassistant.core import callback
 
 from .const import ALERT_OPTIONS, ALERT_TYPE_OPTIONS, ATTR_RAW_TYPE, LOGGER, UNKNOWN
@@ -80,6 +81,22 @@ ATTR_ALERT_ID = "id"
 # re-fire it), and the memory stays bounded however long Home Assistant
 # runs.
 MAX_REMEMBERED_ALERT_IDS = 500
+
+# The key the fired ids are stored under for the next restart (`AlertEventExtraStoredData`).
+SEEN_ALERT_IDS = "seen_alert_ids"
+
+
+@dataclass
+class AlertEventExtraStoredData(EventExtraStoredData):
+    """The event entity's own stored data, plus the alert ids already fired.
+
+    Home Assistant keeps an entity's extra stored data through a restart. The
+    event platform's own two fields (the last event's type and attributes) are
+    read back by `EventExtraStoredData.from_dict`, which ignores this third key,
+    so the last event still comes back exactly as before.
+    """
+
+    seen_alert_ids: list[Any]
 
 ALERT_EVENTS: tuple[EventEntityDescription, ...] = (
     EventEntityDescription(
@@ -126,7 +143,7 @@ class AlwaysFullAlertEvent(AlwaysFullEntity, EventEntity):
         self._seen_ids: dict[Any, None] = {}
 
     async def async_added_to_hass(self) -> None:
-        """Record the alerts already on the page, WITHOUT firing them.
+        """Take back the ids fired before the restart, and record the page in hand, WITHOUT firing.
 
         This is what stops a Home Assistant restart from replaying history.
         The entity is added after the coordinator's first refresh, so the
@@ -135,13 +152,36 @@ class AlwaysFullAlertEvent(AlwaysFullEntity, EventEntity):
         Firing those would trigger every bound automation at once, at
         whatever hour the restart happened to be.
 
+        The rows in hand are not enough on their own. When the vendor's alert
+        log is not answering at startup there are none, and the first read
+        that answers would hand over the whole page as new: on 2026-10-24
+        five restarts during the vendor's 504s each re-fired the day's
+        refills, one to four of them, at that first good read. So the ids
+        fired before the restart come back from the stored data first
+        (`extra_restore_state_data`), and a row they do not hold is a new
+        alert and fires once when the log answers.
+
         The cost is the honest one: alerts raised while Home Assistant was
-        down are never fired. They remain visible on the `last_alert`
-        sensor and in the vendor's app.
+        down, and already on the page when it comes back, are never fired.
+        They remain visible on the `last_alert` sensor and in the vendor's app.
         """
+        if (stored := await self.async_get_last_extra_data()) is not None:
+            ids = stored.as_dict().get(SEEN_ALERT_IDS)
+            for row_id in ids if isinstance(ids, list) else []:
+                self._remember(row_id)
         for row in self._rows():
             self._remember(row.get("id"))
         await super().async_added_to_hass()
+
+    @property
+    def extra_restore_state_data(self) -> AlertEventExtraStoredData:
+        """The event platform's stored data with the fired ids added, for the next restart."""
+        event_data = super().extra_restore_state_data
+        return AlertEventExtraStoredData(
+            event_data.last_event_type,
+            event_data.last_event_attributes,
+            list(self._seen_ids),
+        )
 
     @callback
     def _handle_coordinator_update(self) -> None:

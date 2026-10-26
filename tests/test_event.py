@@ -30,11 +30,13 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.components.event import ATTR_EVENT_TYPE, ATTR_EVENT_TYPES, EventDeviceClass
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE, STATE_UNKNOWN, Platform
-from homeassistant.core import Event, HomeAssistant
+from homeassistant.core import Event, HomeAssistant, State
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import restore_state
 from pytest_homeassistant_custom_component.common import (
     async_capture_events,
     async_fire_time_changed,
+    mock_restore_cache_with_extra_data,
     snapshot_platform,
 )
 from syrupy.assertion import SnapshotAssertion
@@ -45,6 +47,7 @@ from custom_components.alwaysfull.const import (
     ALERT_TYPE_OPTIONS,
     ATTR_RAW_TYPE,
     AVAILABILITY_GRACE_SECONDS,
+    SECONDARY_RETRY_AFTER_POLLS,
     UNKNOWN,
 )
 from custom_components.alwaysfull.event import (
@@ -52,8 +55,9 @@ from custom_components.alwaysfull.event import (
     ATTR_ALERT_ID,
     ATTR_CREATED,
     ATTR_MESSAGE,
+    SEEN_ALERT_IDS,
 )
-from custom_components.alwaysfull.exceptions import AlwaysFullRateLimitError
+from custom_components.alwaysfull.exceptions import AlwaysFullError, AlwaysFullRateLimitError
 from custom_components.alwaysfull.models import device_label
 
 from .conftest import (
@@ -784,3 +788,61 @@ async def test_a_fired_alert_is_visible_in_the_debug_log(
     # The device id IS the bowl's MAC address and never belongs in a log.
     assert DEVICE_ID not in logged
     assert device_label(DEVICE_ID) in logged
+
+
+async def test_a_restart_with_the_alert_log_stalled_does_not_replay_what_fired_before_it(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient
+) -> None:
+    """The ids already fired are kept across a restart, so a stalled first read cannot re-fire them.
+
+    Seen live on 2026-10-24: five restarts whose first poll got no alert page (the vendor's alert log
+    answering 504s) were each followed, at the first good read, by every refill already on the page
+    firing again, one to four of them, because the startup guard only remembers the rows in hand when
+    the entity is added and there were none. The guard still covers the rows in hand; the stored ids
+    cover the rows it could not see. A row the stored ids do not hold is new and fires once.
+    """
+    mock_restore_cache_with_extra_data(
+        hass,
+        (
+            (
+                State(ALERT, "2026-09-17T00:00:00.000+00:00", {ATTR_EVENT_TYPE: "operation_confirmation"}),
+                {
+                    "last_event_type": "operation_confirmation",
+                    "last_event_attributes": {},
+                    SEEN_ALERT_IDS: [row["id"] for row in HISTORY],
+                },
+            ),
+        ),
+    )
+    mock_api.fail_notify_log(AlwaysFullError("Server responded HTTP 504 to /app/notify/getNotifyLog"), times=1)
+    entry = await setup_platform(hass, Platform.EVENT)
+    assert hass.states.get(ALERT).state == "2026-09-17T00:00:00.000+00:00"
+    events = async_capture_events(hass, EVENT_STATE_CHANGED)
+
+    # The rests after the failed read, then the read that answers with the same page.
+    for _ in range(SECONDARY_RETRY_AFTER_POLLS + 1):
+        await poll(hass, entry, mock_api, HISTORY)
+    assert mock_api.notify_log_error_remaining == 0
+    assert fired(events) == []
+
+    await poll(hass, entry, mock_api, [alert_row(5100, "Tilted"), *HISTORY])
+    assert fired(events) == ["tilted"]
+
+
+async def test_the_fired_ids_are_stored_for_the_next_restart(
+    hass: HomeAssistant, mock_api: FakeAlwaysFullClient
+) -> None:
+    """What the next restart reads back: the page seen at startup and every alert fired since.
+
+    The event's own stored data rides along unchanged, so its last event still comes back.
+    """
+    entry = await setup_platform(hass, Platform.EVENT)
+    await poll(hass, entry, mock_api, [alert_row(5100, "Tilted"), *HISTORY])
+
+    stored = {
+        s.state.entity_id: s.extra_data.as_dict()
+        for s in restore_state.async_get(hass).async_get_stored_states()
+        if s.extra_data is not None
+    }[ALERT]
+    assert set(stored[SEEN_ALERT_IDS]) == {5100, *(row["id"] for row in HISTORY)}
+    assert stored["last_event_type"] == "tilted"
