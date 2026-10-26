@@ -71,7 +71,15 @@ Read `docs/VENDOR-API.md` sections 1.4, 1.5 and 12 before touching the API clien
       heartbeat, the offline and problem pushes) and the dog's page of Lau Management read them.
 - [x] 2026-10-24 11:3x HST: **0.5.4 staged on the box** (loads at the next restart): an availability grace of
       five minutes after the last good poll, because a single 603 from the vendor at 11:11 took every entity
-      unavailable for a poll and blanked the dog's page.
+      unavailable for a poll and blanked the dog's page. **Loaded at the 2026-10-25 08:21 HST restart** (made for
+      other work on the box); the box's manifest reads 0.5.4.
+- [ ] **The alert event re-fires old rows after a restart when the vendor's alert log is stalled.** Seen
+      2026-10-24 on bowl1: its earlier refill rows (same vendor ids) fired again at 10:45, 12:59, 16:40, 17:39 and
+      19:37 HST, each the first alert-log read after an HA restart (10:22, 12:51, 16:00, 17:24, 19:22). The startup
+      guard in `event.py` remembers only the rows in hand when the entity is added, and a stalled alert log leaves
+      none, so the first good read fires the whole page. Not fixed yet; nothing on the house box triggers on the
+      event so far. A fix keeps the seen ids across restarts (or counts rows older than the restored last event as
+      seen).
 - [ ] Record the house entity ids in ha-lau-config `registry/manifest.yaml` (names, area, exposure).
 - [ ] Then, designed with the owner: a `packages/water_bowl.yaml` in ha-lau-config (alert pushes
       through `script.lau_notify_household`, a syshealth heartbeat like halo's).
