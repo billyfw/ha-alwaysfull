@@ -4,6 +4,22 @@ Release notes, newest first. Releases before 0.4.0 predate this file; their
 changes are in the commit history, one `build: ship as <version>` commit per
 release.
 
+## 0.5.5
+
+### A restart while the vendor's alert log is stalled no longer re-fires old alerts
+
+The alert event remembered which rows it had already fired in memory only, and
+after a restart it relearnt them from the rows in hand when it was added. When
+the vendor's alert log was not answering at that moment there were none, so the
+first read that answered fired the whole page again as new: on 2026-10-24, five
+restarts during the vendor's 504s each re-fired the day's routine fills, one to
+four of them. The fired ids now ride along in the entity's stored data
+(`AlertEventExtraStoredData`, next to the event platform's own two fields, which
+come back unchanged), so a restart takes them back before the first poll; a row
+they do not hold is a new alert and fires once when the log answers. Anything
+bound to the event (a push for a vendor alert type) no longer repeats old
+alerts after a restart.
+
 ## 0.5.4
 
 ### One failed poll no longer takes every entity unavailable
